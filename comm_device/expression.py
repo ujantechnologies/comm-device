@@ -43,6 +43,7 @@ class ExpressionLabel(str, Enum):
 class ExpressionResult:
     label: ExpressionLabel
     confidence: float
+    frame_id: int = 0
     features: Optional[np.ndarray] = None  # stored for offline retraining
 
 
@@ -85,7 +86,9 @@ class ExpressionService:
 
     def infer(self, frame: np.ndarray, frame_id: int) -> ExpressionResult:
         if _HAS_MEDIAPIPE and self._landmarker is not None:
-            return self._infer_real(frame)
+            result = self._infer_real(frame)
+            result.frame_id = frame_id
+            return result
         return self._infer_synthetic(frame_id)
 
     # ------------------------------------------------------------------
@@ -138,7 +141,7 @@ class ExpressionService:
 
     def _infer_synthetic(self, frame_id: int) -> ExpressionResult:
         if frame_id % 40 == 0:
-            return ExpressionResult(label=ExpressionLabel.NO, confidence=0.82)
+            return ExpressionResult(label=ExpressionLabel.NO, confidence=0.82, frame_id=frame_id)
         if frame_id % 20 == 0:
-            return ExpressionResult(label=ExpressionLabel.YES, confidence=0.87)
-        return ExpressionResult(label=ExpressionLabel.UNCERTAIN, confidence=0.40)
+            return ExpressionResult(label=ExpressionLabel.YES, confidence=0.87, frame_id=frame_id)
+        return ExpressionResult(label=ExpressionLabel.UNCERTAIN, confidence=0.40, frame_id=frame_id)

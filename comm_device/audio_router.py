@@ -1,5 +1,8 @@
+import logging
 import subprocess
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class AudioRouter:
@@ -21,6 +24,7 @@ class AudioRouter:
         return None
 
     def play(self, file_path: str) -> None:
+        # Prefer Bluetooth sink if connected
         sink = self.detect_bluetooth_sink()
         if sink:
             try:
@@ -29,7 +33,32 @@ class AudioRouter:
             except FileNotFoundError:
                 pass
 
+        # Pi 5 uses PipeWire — try paplay on the default sink before aplay
         try:
-            subprocess.run(["aplay", file_path], check=False)
+            result = subprocess.run(
+                ["paplay", file_path],
+                check=False,
+                capture_output=True,
+            )
+            if result.returncode == 0:
+                return
+            logger.debug("paplay failed (rc=%d): %s", result.returncode,
+                         result.stderr.decode(errors="replace").strip())
         except FileNotFoundError:
-            print(f"audio playback command not found; generated artifact at {file_path}")
+            pass
+
+        # ALSA fallback (Pi 4 and earlier, or USB audio)
+        try:
+            result = subprocess.run(["aplay", file_path], check=False, capture_output=True)
+            if result.returncode == 0:
+                return
+            logger.debug("aplay failed (rc=%d): %s", result.returncode,
+                         result.stderr.decode(errors="replace").strip())
+        except FileNotFoundError:
+            pass
+
+        logger.warning(
+            "Audio playback failed — no working output device found. "
+            "Connect a Bluetooth speaker (Step 8) or a USB audio adapter. "
+            "Generated artifact: %s", file_path
+        )
