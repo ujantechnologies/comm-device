@@ -17,3 +17,5 @@ artifacts/
 models/*.gguf
 models/*.onnx
 models/*.wav
+# Generated on-device by update.sh with correct paths and LF endings
+comm-device.desktop
