@@ -18,10 +18,16 @@ sudo apt-get update -qq
 # Core packages available on all supported Pi OS releases
 sudo apt-get install -y \
     python3 python3-venv python3-pip \
-    python3.12 python3.12-venv \
     python3-picamera2 \
     ffmpeg alsa-utils \
     curl
+
+# python3.12 is only available on Bookworm and later; skip silently on Bullseye
+if apt-cache show python3.12 &>/dev/null; then
+    sudo apt-get install -y python3.12 python3.12-venv
+else
+    echo "Note: python3.12 not available in apt — will use system python3 ($(python3 --version))"
+fi
 
 # python3-rpi.gpio was renamed to python3-rpi-lgpio in Bookworm
 if apt-cache show python3-rpi-lgpio &>/dev/null; then
