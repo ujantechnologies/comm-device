@@ -95,7 +95,14 @@ def _llm_tts_thread(
             continue
 
         response = llm.generate_response(event.label)
+        logger.info("LLM response for %s: %s", event.label.value, response)
         store.save_response(event.label, response)
+
+        # Update display immediately so the response is visible while audio plays
+        try:
+            _display_q.put_nowait((event, response))
+        except queue.Full:
+            pass
 
         fb = feedback.collect(event.frame_id, event.label)
         store.save_prediction(
@@ -108,11 +115,6 @@ def _llm_tts_thread(
 
         audio_path = tts.synthesize(response)
         audio.play(audio_path)
-
-        try:
-            _display_q.put_nowait((event, response))
-        except queue.Full:
-            pass
 
 
 # ------------------------------------------------------------------
@@ -130,7 +132,7 @@ def run() -> None:
     expression = ExpressionService(model_path=cfg.face_landmarker_path)
     llm = LlmService(cfg.model_path)
     tts = TtsService(cfg.voice_model_path)
-    display = DisplayService(cfg.display_width, cfg.display_height)
+    display = DisplayService(cfg.display_width, cfg.display_height, cfg.fbdev)
     store = DataStore(cfg.db_path)
     feedback = FeedbackService(cfg.feedback_window_seconds)
     audio = AudioRouter()

@@ -286,6 +286,7 @@ All settings have sensible defaults. Override any of them by exporting environme
 | `COMM_FEEDBACK_WINDOW_SECONDS` | `5` | Seconds to wait for button feedback after prediction |
 | `COMM_EXPR_CONF_THRESHOLD` | `0.6` | Minimum confidence to trigger LLM+TTS pipeline |
 | `COMM_LLM_COOLDOWN_SECONDS` | `3.0` | Minimum seconds between successive LLM calls |
+| `COMM_FBDEV` | `/dev/fb0` | Framebuffer device for the SPI display. Pi 5: `/dev/fb0` (default). Pi 4 and earlier: `/dev/fb1` |
 
 Example — run with a longer feedback window and higher confidence threshold:
 

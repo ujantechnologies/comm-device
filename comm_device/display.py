@@ -10,9 +10,10 @@ from .expression import ExpressionLabel, ExpressionResult
 
 logger = logging.getLogger(__name__)
 
-# Target the MHS-3.5" SPI framebuffer; override via environment variables.
+# SDL_FBDEV is set at runtime from AppConfig.fbdev (default /dev/fb0 for Pi 5).
+# Override via COMM_FBDEV env var. Set SDL_VIDEODRIVER here as a fallback only
+# if it hasn't already been set by the caller.
 os.environ.setdefault("SDL_VIDEODRIVER", "fbdev")
-os.environ.setdefault("SDL_FBDEV", "/dev/fb1")
 os.environ.setdefault("SDL_MOUSEDRV", "TSLIB")
 os.environ.setdefault("SDL_MOUSE_RELATIVE", "0")
 
@@ -46,7 +47,7 @@ class DisplayService:
       Bottom strip — LLM response text
     """
 
-    def __init__(self, width: int, height: int) -> None:
+    def __init__(self, width: int, height: int, fbdev: str = "/dev/fb0") -> None:
         self.width = width
         self.height = height
         self._screen: Optional[object] = None
@@ -54,6 +55,7 @@ class DisplayService:
         self._font_sm: Optional[object] = None
 
         if _HAS_PYGAME:
+            os.environ["SDL_FBDEV"] = fbdev
             self._init_pygame()
 
     def _init_pygame(self) -> None:

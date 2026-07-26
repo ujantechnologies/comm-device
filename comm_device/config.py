@@ -23,6 +23,10 @@ class AppConfig:
     expression_confidence_threshold: float = float(os.getenv("COMM_EXPR_CONF_THRESHOLD", "0.6"))
     # Minimum seconds between successive LLM invocations
     llm_cooldown_seconds: float = float(os.getenv("COMM_LLM_COOLDOWN_SECONDS", "3.0"))
+    # Framebuffer device for the SPI display.
+    # Pi 5: legacy fb0 (bcm2708_fb doesn't load, SPI display takes fb0).
+    # Pi 4 and earlier: fb1 (VC4 firmware claims fb0 first).
+    fbdev: str = os.getenv("COMM_FBDEV", "/dev/fb0")
 
 
 def load_config() -> AppConfig:
