@@ -13,7 +13,9 @@ pkill -f comm_device 2>/dev/null && sleep 1 || true
 
 # -- Pull latest code ----------------------------------------------------------
 echo "==> Pulling latest code..."
-git -C "${REPO_ROOT}" pull --ff-only
+git -C "${REPO_ROOT}" fetch --quiet origin
+BRANCH="$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD)"
+git -C "${REPO_ROOT}" reset --hard "origin/${BRANCH}"
 
 # -- Sync Python packages (skip mediapipe — handled separately) ----------------
 if [ ! -d "${VENV_DIR}" ]; then
