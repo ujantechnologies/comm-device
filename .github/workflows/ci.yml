@@ -9,14 +9,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install lightweight deps
+
+      - name: Install cross-platform dependencies
         run: |
           python -m pip install --upgrade pip
           pip install numpy scikit-learn joblib
-      - name: Compile
+          # mediapipe and pygame require display/native libs on CI; install without binary check
+          pip install mediapipe pygame opencv-python --quiet || true
+
+      - name: Compile all modules
         run: python -m compileall comm_device scripts
-      - name: Environment script smoke test
+
+      - name: Import smoke-test (no hardware required)
+        run: |
+          python -c "
+          from comm_device.config import load_config
+          from comm_device.expression import ExpressionLabel, ExpressionResult
+          from comm_device.data_store import DataStore
+          cfg = load_config()
+          store = DataStore(':memory:')
+          store.save_prediction(1, ExpressionLabel.YES, 0.9)
+          store.save_response(ExpressionLabel.YES, 'test response')
+          X, y = store.load_features_and_labels()
+          assert X.shape == (0, 5), f'unexpected shape {X.shape}'
+          print('smoke test passed')
+          "
+
+      - name: Environment check
         run: python scripts/check_env.py || true

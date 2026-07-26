@@ -1,10 +1,13 @@
-picamera2>=0.3.25
-tflite-runtime>=2.14.0
-mediapipe>=0.10.14
-opencv-python>=4.10.0
-pygame>=2.6.0
-llama-cpp-python>=0.2.90
-piper-tts>=1.3.0
+# Cross-platform (CI + Pi)
 numpy>=1.26.0
 scikit-learn>=1.5.0
 joblib>=1.4.0
+mediapipe>=0.10.14
+opencv-python>=4.10.0
+pygame>=2.6.0
+
+# Installed via install.sh on Pi (requires pip or conda)
+# llama-cpp-python>=0.2.90
+# piper-tts>=1.3.0
+# picamera2>=0.3.25
+# RPi.GPIO>=0.7.1
