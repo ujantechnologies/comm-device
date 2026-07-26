@@ -32,4 +32,4 @@ grep -v '^mediapipe' "${REPO_ROOT}/requirements.txt" | pip install -r /dev/stdin
 
 echo ""
 echo "Update complete."
-echo "Run app : source ${VENV_DIR}/bin/activate && python -m comm_device"
+echo "Run app : ./run.sh"

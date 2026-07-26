@@ -10,10 +10,15 @@ from .expression import ExpressionLabel, ExpressionResult
 
 logger = logging.getLogger(__name__)
 
-# SDL_FBDEV is set at runtime from AppConfig.fbdev (default /dev/fb0 for Pi 5).
-# Override via COMM_FBDEV env var. Set SDL_VIDEODRIVER here as a fallback only
-# if it hasn't already been set by the caller.
-os.environ.setdefault("SDL_VIDEODRIVER", "fbdev")
+# Auto-detect display backend.
+# If a Wayland or X11 session is active (e.g. Pi desktop), use it so the app
+# opens a window on screen. Fall back to fbdev for the SPI panel on headless setups.
+if "WAYLAND_DISPLAY" in os.environ:
+    os.environ.setdefault("SDL_VIDEODRIVER", "wayland")
+elif "DISPLAY" in os.environ:
+    os.environ.setdefault("SDL_VIDEODRIVER", "x11")
+else:
+    os.environ.setdefault("SDL_VIDEODRIVER", "fbdev")
 os.environ.setdefault("SDL_MOUSEDRV", "TSLIB")
 os.environ.setdefault("SDL_MOUSE_RELATIVE", "0")
 
