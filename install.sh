@@ -53,29 +53,14 @@ if [ ! -f "${VOICE_MODEL}" ]; then
         -o "${VOICE_JSON}"
 fi
 
-# ── Gemma 3 1B GGUF (from HuggingFace, requires HF token for gated model) ─────
+# ── Gemma 3 1B GGUF (lmstudio-community — public, no login required) ──────────
+# Source: https://huggingface.co/lmstudio-community/gemma-3-1b-it-GGUF
 GGUF_MODEL="${MODEL_DIR}/gemma3-1b-Q4_K_M.gguf"
 if [ ! -f "${GGUF_MODEL}" ]; then
-    echo "Downloading Gemma 3 1B GGUF (Q4_K_M)..."
-    echo "Note: you may be prompted to log in with your HuggingFace token."
-    pip install huggingface_hub --quiet
-    python3 - <<'PY'
-import os, sys
-from huggingface_hub import hf_hub_download
-try:
-    path = hf_hub_download(
-        repo_id="google/gemma-3-1b-it-GGUF",
-        filename="gemma3-1b-it-Q4_K_M.gguf",
-        local_dir=os.path.join(os.environ["REPO_ROOT"], "models"),
-    )
-    # Rename to match config default
-    import shutil
-    shutil.move(path, os.path.join(os.environ["REPO_ROOT"], "models", "gemma3-1b-Q4_K_M.gguf"))
-except Exception as e:
-    print(f"GGUF download failed: {e}")
-    print("Place the GGUF file manually at models/gemma3-1b-Q4_K_M.gguf")
-    sys.exit(0)
-PY
+    echo "Downloading Gemma 3 1B Q4_K_M GGUF (~806 MB)..."
+    curl -L --progress-bar \
+        "https://huggingface.co/lmstudio-community/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf" \
+        -o "${GGUF_MODEL}"
 fi
 
 # ── Pre-built ARM64 binaries from comm-device-dist ────────────────────────────
