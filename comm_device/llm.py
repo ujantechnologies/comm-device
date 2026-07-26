@@ -72,3 +72,55 @@ class LlmService:
         except Exception as exc:
             logger.error("LLM inference error: %s", exc)
             return _FALLBACK[label]
+
+    def generate_question(self, history: list[tuple[str, str]]) -> str:
+        """Generate the next yes/no question to ask the user.
+
+        Args:
+            history: List of (question, answer) pairs from the current session.
+
+        Returns:
+            A short yes/no question string.
+        """
+        fallbacks = [
+            "Are you comfortable right now?",
+            "Are you in any pain?",
+            "Do you need something to drink?",
+            "Would you like to rest?",
+            "Do you need help with something?",
+            "Are you feeling okay?",
+        ]
+        if self._llm is None:
+            return fallbacks[len(history) % len(fallbacks)]
+
+        if history:
+            history_text = "Previous exchanges:\n" + "\n".join(
+                f"Q: {q}\nA: {a}" for q, a in history[-5:]
+            ) + "\n\n"
+        else:
+            history_text = ""
+
+        prompt = (
+            "<start_of_turn>user\n"
+            "You are an AAC device assistant helping a non-verbal person communicate "
+            "using yes/no head gestures.\n"
+            f"{history_text}"
+            "Ask exactly one short, clear yes/no question. "
+            "Reply with only the question itself.\n"
+            "<end_of_turn>\n"
+            "<start_of_turn>model\n"
+        )
+        try:
+            out = self._llm(
+                prompt,
+                max_tokens=48,
+                stop=["<end_of_turn>", "\n"],
+                temperature=0.7,
+            )
+            text = out["choices"][0]["text"].strip()
+            if text and not text.endswith("?"):
+                text += "?"
+            return text or fallbacks[len(history) % len(fallbacks)]
+        except Exception as exc:
+            logger.error("Question generation error: %s", exc)
+            return fallbacks[len(history) % len(fallbacks)]

@@ -24,6 +24,9 @@ _frame_q: queue.Queue[FrameData] = queue.Queue(maxsize=2)
 _result_q: queue.Queue[ExpressionResult] = queue.Queue(maxsize=1)
 _event_q: queue.Queue[ExpressionResult] = queue.Queue(maxsize=1)
 _display_q: queue.Queue[tuple[ExpressionResult, str]] = queue.Queue(maxsize=1)
+# Separate queue so the display loop gets raw frames without competing with the
+# expression thread, which exclusively drains _frame_q.
+_display_frame_q: queue.Queue["np.ndarray"] = queue.Queue(maxsize=1)
 _stop = threading.Event()
 
 
@@ -55,6 +58,16 @@ def _expression_thread(svc: ExpressionService) -> None:
 
         result = svc.infer(data.frame, data.frame_id)
 
+        # Share raw frame with the display loop (non-blocking replace)
+        try:
+            _display_frame_q.put_nowait(data.frame)
+        except queue.Full:
+            try:
+                _display_frame_q.get_nowait()
+            except queue.Empty:
+                pass
+            _display_frame_q.put_nowait(data.frame)
+
         # Push latest result for display (non-blocking replace)
         try:
             _result_q.put_nowait(result)
@@ -81,6 +94,24 @@ def _expression_thread(svc: ExpressionService) -> None:
                 pass
 
 
+def _put_display(event: Optional[ExpressionResult], question: str) -> None:
+    """Non-blocking update of the display queue."""
+    sentinel = event or ExpressionResult(
+        label=ExpressionLabel.UNCERTAIN, confidence=0.0, frame_id=0
+    )
+    try:
+        _display_q.put_nowait((sentinel, question))
+    except queue.Full:
+        try:
+            _display_q.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            _display_q.put_nowait((sentinel, question))
+        except queue.Full:
+            pass
+
+
 def _llm_tts_thread(
     llm: LlmService,
     tts: TtsService,
@@ -88,21 +119,26 @@ def _llm_tts_thread(
     feedback: FeedbackService,
     audio: AudioRouter,
 ) -> None:
+    history: list[tuple[str, str]] = []  # (question, answer) pairs
+
+    # Generate and speak the opening question before waiting for any gesture
+    question = llm.generate_question(history)
+    logger.info("Opening question: %s", question)
+    _put_display(None, question)
+    audio_path = tts.synthesize(question)
+    audio.play(audio_path)
+
     while not _stop.is_set():
         try:
             event = _event_q.get(timeout=0.1)
         except queue.Empty:
             continue
 
-        response = llm.generate_response(event.label)
-        logger.info("LLM response for %s: %s", event.label.value, response)
-        store.save_response(event.label, response)
+        answer = event.label.value  # "yes" or "no"
+        logger.info("User answered '%s' (conf=%.2f) to: %s", answer, event.confidence, question)
 
-        # Update display immediately so the response is visible while audio plays
-        try:
-            _display_q.put_nowait((event, response))
-        except queue.Full:
-            pass
+        history.append((question, answer))
+        store.save_response(event.label, f"Q: {question} | A: {answer}")
 
         fb = feedback.collect(event.frame_id, event.label)
         store.save_prediction(
@@ -113,7 +149,14 @@ def _llm_tts_thread(
             features=event.features,
         )
 
-        audio_path = tts.synthesize(response)
+        # Show the user's response on the display immediately
+        _put_display(event, question)
+
+        # Generate and speak the follow-up question
+        question = llm.generate_question(history)
+        logger.info("Next question: %s", question)
+        _put_display(None, question)
+        audio_path = tts.synthesize(question)
         audio.play(audio_path)
 
 
@@ -182,8 +225,7 @@ def run() -> None:
             # Grab the most recent raw frame for display (best-effort)
             raw_frame = None
             try:
-                fd = _frame_q.get_nowait()
-                raw_frame = fd.frame
+                raw_frame = _display_frame_q.get_nowait()
             except queue.Empty:
                 pass
 
