@@ -50,11 +50,36 @@ if apt-cache show libatlas-base-dev &>/dev/null; then
 fi
 
 # -- Python virtual environment -------------------------------------------------
-python3 -m venv "${VENV_DIR}" --system-site-packages
+# Prefer Python 3.12 or 3.11 — mediapipe and llama-cpp-python do not yet
+# publish aarch64 wheels for Python 3.13. Fall back to system python3.
+PYTHON_BIN="python3"
+for _ver in python3.12 python3.11; do
+    if command -v "${_ver}" &>/dev/null; then
+        PYTHON_BIN="${_ver}"
+        break
+    fi
+done
+echo "Using ${PYTHON_BIN} ($(${PYTHON_BIN} --version)) for virtual environment"
+
+"${PYTHON_BIN}" -m venv "${VENV_DIR}" --system-site-packages
 # shellcheck disable=SC1091
 source "${VENV_DIR}/bin/activate"
 pip install --upgrade pip --quiet
-pip install -r "${REPO_ROOT}/requirements.txt" --quiet
+
+# -- mediapipe -----------------------------------------------------------------
+# No aarch64 PyPI wheel exists for Python 3.13 yet; try the system apt package
+# first (visible to the venv via --system-site-packages), then fall back to pip.
+if apt-cache show python3-mediapipe &>/dev/null; then
+    sudo apt-get install -y python3-mediapipe
+    echo "mediapipe installed via apt"
+elif pip install "mediapipe>=0.10.14" --quiet 2>/dev/null; then
+    echo "mediapipe installed via pip"
+else
+    echo "Warning: mediapipe could not be installed — expression detection will use synthetic fallback"
+fi
+
+# Install remaining Python requirements (mediapipe handled above)
+grep -v '^mediapipe' "${REPO_ROOT}/requirements.txt" | pip install -r /dev/stdin --quiet
 
 # -- Pi-specific Python packages ------------------------------------------------
 # llama-cpp-python: build for ARM with NEON + KleidiAI
