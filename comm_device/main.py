@@ -210,6 +210,7 @@ def run() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
 
     current_result = ExpressionResult(label=ExpressionLabel.UNCERTAIN, confidence=0.0)
+    current_question = ""
     current_response = ""
     display_frame_id = 0
 
