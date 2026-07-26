@@ -65,6 +65,12 @@ Install complete. Activate venv with: source .venv/bin/activate
 Run: python -m comm_device
 ```
 
+> **Updating after a code change?** Use `update.sh` instead — it runs `git pull` and re-syncs Python packages without re-downloading the ~870 MB of model files:
+> ```bash
+> chmod +x update.sh
+> ./update.sh
+> ```
+
 ---
 
 ## Step 3b — Hugging Face Model Downloads

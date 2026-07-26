@@ -48,6 +48,7 @@ class FeedbackService:
     def __init__(self, window_seconds: int = 5) -> None:
         self._window = window_seconds
         if _HAS_GPIO:
+            GPIO.cleanup()  # release any pins left claimed by a previous crashed run
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(_PIN_CORRECT, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             GPIO.setup(_PIN_WRONG, GPIO.IN, pull_up_down=GPIO.PUD_UP)
