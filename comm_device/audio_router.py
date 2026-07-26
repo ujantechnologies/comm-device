@@ -33,19 +33,16 @@ class AudioRouter:
             except FileNotFoundError:
                 pass
 
-        # Pi 5 uses PipeWire — try paplay on the default sink before aplay
-        try:
-            result = subprocess.run(
-                ["paplay", file_path],
-                check=False,
-                capture_output=True,
-            )
-            if result.returncode == 0:
-                return
-            logger.debug("paplay failed (rc=%d): %s", result.returncode,
-                         result.stderr.decode(errors="replace").strip())
-        except FileNotFoundError:
-            pass
+        # Pi 5 / Trixie: PipeWire native (pw-play) first, then PulseAudio compat (paplay)
+        for cmd in (["pw-play", file_path], ["paplay", file_path]):
+            try:
+                result = subprocess.run(cmd, check=False, capture_output=True)
+                if result.returncode == 0:
+                    return
+                logger.debug("%s failed (rc=%d): %s", cmd[0], result.returncode,
+                             result.stderr.decode(errors="replace").strip())
+            except FileNotFoundError:
+                pass
 
         # ALSA fallback (Pi 4 and earlier, or USB audio)
         try:
