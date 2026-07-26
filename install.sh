@@ -18,6 +18,7 @@ sudo apt-get update -qq
 # Core packages available on all supported Pi OS releases
 sudo apt-get install -y \
     python3 python3-venv python3-pip \
+    python3.12 python3.12-venv \
     python3-picamera2 \
     ffmpeg alsa-utils \
     curl
@@ -120,7 +121,9 @@ if [ ! -f "${GGUF_MODEL}" ]; then
 fi
 
 # -- Pre-built ARM64 binaries from comm-device-dist ----------------------------
-if curl -fsSL "${DIST_MANIFEST}" -o "${ARTIFACT_DIR}/latest.json" 2>/dev/null; then
+if ! command -v jq &>/dev/null; then
+    echo "Skipping dist manifest download (jq not available)"
+elif curl -fsSL "${DIST_MANIFEST}" -o "${ARTIFACT_DIR}/latest.json" 2>/dev/null; then
     VERSION=$(jq -r '.version' "${ARTIFACT_DIR}/latest.json")
     echo "Dist manifest: ${VERSION}"
     mapfile -t URLS < <(jq -r '.assets[].url' "${ARTIFACT_DIR}/latest.json")
