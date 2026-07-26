@@ -1,8 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=Comm Device
-Comment=AAC communication device — starts automatically with the desktop
+Comment=AAC communication device
 Exec=/home/kiranr/comm-device/run.sh
-WorkingDirectory=/home/kiranr/comm-device
+Path=/home/kiranr/comm-device
+Icon=utilities-terminal
 Terminal=false
+Categories=Utility;
 X-GNOME-Autostart-enabled=true

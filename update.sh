@@ -30,6 +30,9 @@ source "${VENV_DIR}/bin/activate"
 pip install --upgrade pip --quiet
 grep -v '^mediapipe' "${REPO_ROOT}/requirements.txt" | pip install -r /dev/stdin --quiet
 
+# Ensure all scripts are executable after a reset
+chmod +x "${REPO_ROOT}/run.sh" "${REPO_ROOT}/update.sh" "${REPO_ROOT}/install.sh"
+
 echo ""
 echo "Update complete."
 echo "Run app : ./run.sh"

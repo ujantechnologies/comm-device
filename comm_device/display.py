@@ -58,10 +58,17 @@ class DisplayService:
         self._screen: Optional[object] = None
         self._font_xl: Optional[object] = None
         self._font_sm: Optional[object] = None
+        self._should_quit = False
+        # Close button — top-right corner, finger-friendly 48×48 px
+        self._close_rect: Optional[object] = None
 
         if _HAS_PYGAME:
             os.environ["SDL_FBDEV"] = fbdev
             self._init_pygame()
+
+    @property
+    def should_quit(self) -> bool:
+        return self._should_quit
 
     def _init_pygame(self) -> None:
         pygame.init()
@@ -87,9 +94,10 @@ class DisplayService:
                 return
 
         pygame.display.set_caption("Comm Device")
-        pygame.mouse.set_visible(False)
+        pygame.mouse.set_visible(True)  # show cursor so touch targets are visible
         self._font_xl = pygame.font.SysFont("monospace", 90, bold=True)
         self._font_sm = pygame.font.SysFont("monospace", 16)
+        self._close_rect = pygame.Rect(self.width - 48, 0, 48, 48)
         logger.info("Display initialised at %dx%d", self.width, self.height)
 
     def render(
@@ -108,12 +116,28 @@ class DisplayService:
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                self._should_quit = True
                 return
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_q):
+                    self._should_quit = True
+                    return
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
+                pos = (
+                    event.x if event.type == pygame.FINGERDOWN else event.pos[0],
+                    event.y if event.type == pygame.FINGERDOWN else event.pos[1],
+                )
+                if event.type == pygame.FINGERDOWN:
+                    # FINGERDOWN x/y are 0-1 normalised; convert to pixels
+                    pos = (int(event.x * self.width), int(event.y * self.height))
+                if self._close_rect and self._close_rect.collidepoint(pos):
+                    self._should_quit = True
+                    return
 
         self._screen.fill(_DARK)
         half = self.width // 2
 
-        # Left: camera feed
+        # Left: camera feed (rotated 90° clockwise for sideways-mounted camera)
         if frame is not None:
             try:
                 cam_h = self.height - 32
@@ -121,6 +145,9 @@ class DisplayService:
                 surf = pygame.surfarray.make_surface(
                     np.ascontiguousarray(crop.swapaxes(0, 1))
                 )
+                # rotate() is CCW; -90 = 90° clockwise
+                surf = pygame.transform.rotate(surf, -90)
+                surf = pygame.transform.scale(surf, (half, cam_h))
                 self._screen.blit(surf, (0, 0))
             except Exception:
                 pass
@@ -147,7 +174,14 @@ class DisplayService:
 
         # Frame counter
         fc = self._font_sm.render(f"#{frame_id}", True, (60, 60, 60))
-        self._screen.blit(fc, (self.width - fc.get_width() - 4, 4))
+        self._screen.blit(fc, (self.width - fc.get_width() - 52, 4))
+
+        # Close button — always on top
+        if self._close_rect:
+            pygame.draw.rect(self._screen, (180, 30, 30), self._close_rect, border_radius=6)
+            x_surf = self._font_sm.render("✕", True, _WHITE)
+            xr = x_surf.get_rect(center=self._close_rect.center)
+            self._screen.blit(x_surf, xr)
 
         pygame.display.flip()
 

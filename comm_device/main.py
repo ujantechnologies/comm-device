@@ -230,6 +230,9 @@ def run() -> None:
                 pass
 
             display.render(display_frame_id, current_result, current_response, raw_frame)
+            if display.should_quit:
+                logger.info("Quit requested from display — shutting down")
+                break
             time.sleep(1 / 15)  # ~15 FPS
 
     finally:

@@ -321,6 +321,56 @@ To start the app automatically when the Pi powers on:
 sudo nano /etc/systemd/system/comm-device.service
 ```
 
+---
+
+## Desktop Icon & Autostart (Raspberry Pi OS Desktop)
+
+### Add a desktop icon you can tap to launch
+
+```bash
+# 1. Edit the launcher — replace 'kiranr' with your actual username
+nano ~/comm-device/comm-device.desktop
+
+# 2. Copy to the desktop
+cp ~/comm-device/comm-device.desktop ~/Desktop/comm-device.desktop
+chmod +x ~/Desktop/comm-device.desktop
+
+# 3. Trust the launcher (Raspberry Pi OS will ask on first double-tap)
+#    Just tap "Execute" when prompted
+```
+
+### Auto-launch when the desktop starts
+
+```bash
+mkdir -p ~/.config/autostart
+cp ~/comm-device/comm-device.desktop ~/.config/autostart/
+```
+
+The app will open automatically on the next login/reboot.
+
+### Run from SSH with display & audio access
+
+```bash
+cd ~/comm-device
+./run.sh
+```
+
+`run.sh` automatically finds the active Wayland socket and PipeWire session so display and audio work over SSH without extra setup.
+
+### Quit the app
+
+- **Touch/click** the red **✕** button in the top-right corner of the screen
+- **Keyboard**: press **ESC** or **Q**
+- **SSH**: `pkill -f comm_device`
+
+---
+
+To start the app automatically when the Pi powers on:
+
+```bash
+sudo nano /etc/systemd/system/comm-device.service
+```
+
 Paste the following (replace `pi` with your actual username):
 
 ```ini
