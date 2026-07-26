@@ -366,4 +366,5 @@ journalctl -u comm-device -f
 | `Face landmarker model not found` | Model missing | Run the curl command from Step 3b Option A |
 | LLM responses are slow | Expected on Pi 5 without GPU | Normal; Q4_K_M quantisation keeps it to ~2–5 s per response |
 | `classifier.pkl` missing | Never trained | Run `python scripts/train_classifier.py` |
+| `pygame.error: fbdev not available` / `windows not available` crash | No SPI display and no desktop session running | Fixed in latest code — pull and restart. The app now falls back to text-only mode on headless setups. |
 | App crashes on startup with pygame error | No display attached | Attach HDMI monitor or SPI display; the app falls back to a regular window if `/dev/fb1` is unavailable |

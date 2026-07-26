@@ -64,11 +64,20 @@ class DisplayService:
                 pygame.FULLSCREEN | pygame.NOFRAME,
             )
         except pygame.error:
-            # Dev machine without a framebuffer — open a regular window instead
-            os.environ["SDL_VIDEODRIVER"] = ""
-            pygame.display.quit()
-            pygame.display.init()
-            self._screen = pygame.display.set_mode((self.width, self.height))
+            # No framebuffer — try a regular windowed display (e.g. X11/Wayland)
+            try:
+                os.environ["SDL_VIDEODRIVER"] = ""
+                pygame.display.quit()
+                pygame.display.init()
+                self._screen = pygame.display.set_mode((self.width, self.height))
+            except pygame.error:
+                # Headless environment — run without any visual output
+                logger.warning(
+                    "No display available (fbdev and windowed both failed) "
+                    "— running in text-only mode"
+                )
+                pygame.quit()
+                return
 
         pygame.display.set_caption("Comm Device")
         pygame.mouse.set_visible(False)
