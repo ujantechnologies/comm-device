@@ -47,18 +47,27 @@ class FeedbackService:
 
     def __init__(self, window_seconds: int = 5) -> None:
         self._window = window_seconds
+        self._gpio_ok = False
         if _HAS_GPIO:
-            GPIO.cleanup()  # release any pins left claimed by a previous crashed run
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(_PIN_CORRECT, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.setup(_PIN_WRONG, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            try:
+                GPIO.setmode(GPIO.BCM)
+                GPIO.setup(_PIN_CORRECT, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                GPIO.setup(_PIN_WRONG, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                self._gpio_ok = True
+            except Exception as exc:
+                logger.warning(
+                    "GPIO setup failed (%s) — another instance may still be running "
+                    "(kill it with: pkill -f comm_device). "
+                    "Feedback buttons disabled; all predictions will be auto-accepted.",
+                    exc,
+                )
 
     def collect(
         self,
         frame_id: int,
         predicted_label: ExpressionLabel,
     ) -> FeedbackEvent:
-        if not _HAS_GPIO:
+        if not self._gpio_ok:
             return FeedbackEvent(
                 frame_id=frame_id,
                 predicted_label=predicted_label,
@@ -100,6 +109,6 @@ class FeedbackService:
         )
 
     def cleanup(self) -> None:
-        if _HAS_GPIO:
+        if self._gpio_ok:
             GPIO.cleanup()
             logger.info("GPIO cleaned up")

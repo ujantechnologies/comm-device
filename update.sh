@@ -7,6 +7,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${REPO_ROOT}/.venv"
 
+# -- Stop any running instance -------------------------------------------------
+echo "==> Stopping any running comm_device instance..."
+pkill -f comm_device 2>/dev/null && sleep 1 || true
+
 # -- Pull latest code ----------------------------------------------------------
 echo "==> Pulling latest code..."
 git -C "${REPO_ROOT}" pull --ff-only
