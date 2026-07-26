@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -17,9 +18,26 @@ class TtsService:
 
     def __init__(self, voice_model_path: str) -> None:
         self.voice_model_path = voice_model_path
-        self._piper = shutil.which("piper") or shutil.which("piper-tts")
+        self._piper = self._find_piper()
         if self._piper is None:
             logger.warning("piper binary not found — TTS will write text placeholder")
+
+    def _find_piper(self) -> str | None:
+        """Find Piper even when the venv is launched without activation."""
+        candidates = ["piper", "piper-tts"]
+        venv_bin = Path(sys.executable).resolve().parent
+
+        for name in candidates:
+            found = shutil.which(name)
+            if found:
+                return found
+
+        for name in candidates:
+            candidate = venv_bin / name
+            if candidate.exists():
+                return str(candidate)
+
+        return None
 
     def synthesize(
         self, text: str, output_path: str = "artifacts/response.wav"

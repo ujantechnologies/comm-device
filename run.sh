@@ -26,6 +26,7 @@ fi
 
 # -- PipeWire / audio ----------------------------------------------------------
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export PATH="${VENV}/bin:${PATH}"
 
 # -- Launch --------------------------------------------------------------------
 echo "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<not set>}  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}"
