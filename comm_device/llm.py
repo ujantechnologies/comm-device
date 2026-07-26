@@ -89,6 +89,11 @@ class LlmService:
             "Would you like to rest?",
             "Do you need help with something?",
             "Are you feeling okay?",
+            "Would you like to change position?",
+            "Are you too hot?",
+            "Are you too cold?",
+            "Would you like music?",
+            "Do you want to go outside?",
         ]
         if self._llm is None:
             return fallbacks[len(history) % len(fallbacks)]
@@ -105,8 +110,9 @@ class LlmService:
             "You are an AAC device assistant helping a non-verbal person communicate "
             "using yes/no head gestures.\n"
             f"{history_text}"
-            "Ask exactly one short, clear yes/no question. "
-            "Reply with only the question itself.\n"
+            "Ask exactly one short, clear yes/no question that can be answered by nodding yes or no. "
+            "Use a simple question beginning with Do, Does, Are, Is, Can, Would, or Will. "
+            "Do not repeat recent questions. Reply with only the question itself.\n"
             "<end_of_turn>\n"
             "<start_of_turn>model\n"
         )
@@ -115,12 +121,16 @@ class LlmService:
                 prompt,
                 max_tokens=48,
                 stop=["<end_of_turn>", "\n"],
-                temperature=0.7,
+                temperature=0.95,
             )
             text = out["choices"][0]["text"].strip()
             if text and not text.endswith("?"):
                 text += "?"
-            return text or fallbacks[len(history) % len(fallbacks)]
+            if text:
+                recent = {q.strip().lower() for q, _ in history[-6:]}
+                if text.strip().lower() not in recent:
+                    return text
+            return fallbacks[len(history) % len(fallbacks)]
         except Exception as exc:
             logger.error("Question generation error: %s", exc)
             return fallbacks[len(history) % len(fallbacks)]

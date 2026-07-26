@@ -104,6 +104,7 @@ class DisplayService:
         self,
         frame_id: int,
         result: ExpressionResult,
+        question: str,
         response: str,
         frame: Optional[np.ndarray] = None,
     ) -> None:
@@ -141,7 +142,7 @@ class DisplayService:
         if frame is not None:
             try:
                 cam_h = self.height - 32
-                crop = frame[:cam_h, :half]
+                crop = frame
                 surf = pygame.surfarray.make_surface(
                     np.ascontiguousarray(crop.swapaxes(0, 1))
                 )
@@ -166,11 +167,18 @@ class DisplayService:
             pygame.Rect(half + 10, by + badge.get_height() + 6, bar_w, 8),
         )
 
-        # Bottom: response text (up to 2 lines)
-        if response:
-            for i, line in enumerate(self._wrap(response, 54)[:2]):
+        # Bottom: current question (spoken prompt)
+        if question:
+            for i, line in enumerate(self._wrap(f"Q: {question}", 54)[:2]):
                 txt = self._font_sm.render(line, True, _WHITE)
                 self._screen.blit(txt, (4, self.height - 34 + i * 17))
+
+        # Right panel: final response text
+        if response:
+            lines = self._wrap(response, 22)[:4]
+            for i, line in enumerate(lines):
+                txt = self._font_sm.render(line, True, _WHITE)
+                self._screen.blit(txt, (half + 10, self.height // 2 + 12 + i * 17))
 
         # Frame counter
         fc = self._font_sm.render(f"#{frame_id}", True, (60, 60, 60))
@@ -179,7 +187,7 @@ class DisplayService:
         # Close button — always on top
         if self._close_rect:
             pygame.draw.rect(self._screen, (180, 30, 30), self._close_rect, border_radius=6)
-            x_surf = self._font_sm.render("✕", True, _WHITE)
+            x_surf = self._font_sm.render("X", True, _WHITE)
             xr = x_surf.get_rect(center=self._close_rect.center)
             self._screen.blit(x_surf, xr)
 
