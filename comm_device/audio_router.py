@@ -6,7 +6,15 @@ logger = logging.getLogger(__name__)
 
 
 class AudioRouter:
+    def __init__(self, output_target: str = "") -> None:
+        # Optional explicit output target (e.g. bluez_output....)
+        self._output_target = output_target.strip()
+
     def detect_bluetooth_sink(self) -> Optional[str]:
+        # If explicitly configured, trust the configured target first.
+        if self._output_target:
+            return self._output_target
+
         try:
             result = subprocess.run(
                 ["pactl", "list", "short", "sinks"],
@@ -27,6 +35,23 @@ class AudioRouter:
         # Prefer Bluetooth sink if connected
         sink = self.detect_bluetooth_sink()
         if sink:
+            # PipeWire native target (works even without paplay/pactl)
+            try:
+                result = subprocess.run(
+                    ["pw-play", "--target", sink, file_path],
+                    check=False,
+                    capture_output=True,
+                )
+                if result.returncode == 0:
+                    return
+                logger.debug(
+                    "pw-play --target failed (rc=%d): %s",
+                    result.returncode,
+                    result.stderr.decode(errors="replace").strip(),
+                )
+            except FileNotFoundError:
+                pass
+
             try:
                 subprocess.run(["paplay", "--device", sink, file_path], check=False)
                 return

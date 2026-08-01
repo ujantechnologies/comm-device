@@ -184,7 +184,7 @@ def run() -> None:
     display = DisplayService(cfg.display_width, cfg.display_height, cfg.fbdev)
     store = DataStore(cfg.db_path)
     feedback = FeedbackService(cfg.feedback_window_seconds)
-    audio = AudioRouter()
+    audio = AudioRouter(output_target=cfg.audio_output_target)
 
     camera.start()
 

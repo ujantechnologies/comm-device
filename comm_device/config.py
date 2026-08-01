@@ -23,6 +23,9 @@ class AppConfig:
     expression_confidence_threshold: float = float(os.getenv("COMM_EXPR_CONF_THRESHOLD", "0.6"))
     # Minimum seconds between successive LLM invocations
     llm_cooldown_seconds: float = float(os.getenv("COMM_LLM_COOLDOWN_SECONDS", "3.0"))
+    # Optional explicit audio output target (PipeWire node name), e.g.
+    # bluez_output.CF_57_28_DC_04_87.1
+    audio_output_target: str = os.getenv("COMM_AUDIO_OUTPUT_TARGET", "")
     # Framebuffer device for the SPI display.
     # Pi 5: legacy fb0 (bcm2708_fb doesn't load, SPI display takes fb0).
     # Pi 4 and earlier: fb1 (VC4 firmware claims fb0 first).
