@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
@@ -28,6 +29,7 @@ _WINDOW = 15          # frames held in sliding window
 _NOD_THRESHOLD = 0.04  # min normalised Y range to register a nod (YES)
 _SHAKE_THRESHOLD = 0.04  # min normalised X range to register a shake (NO)
 _DOMINANCE = 1.5      # primary axis must be this many times larger than secondary
+_SYNTHETIC_GESTURES = os.getenv("COMM_SYNTHETIC_GESTURES", "0") == "1"
 
 # Nose tip landmark index in MediaPipe Face Landmarker output
 _NOSE_IDX = 1
@@ -140,6 +142,8 @@ class ExpressionService:
     # ------------------------------------------------------------------
 
     def _infer_synthetic(self, frame_id: int) -> ExpressionResult:
+        if not _SYNTHETIC_GESTURES:
+            return ExpressionResult(label=ExpressionLabel.UNCERTAIN, confidence=0.0, frame_id=frame_id)
         if frame_id % 40 == 0:
             return ExpressionResult(label=ExpressionLabel.NO, confidence=0.82, frame_id=frame_id)
         if frame_id % 20 == 0:

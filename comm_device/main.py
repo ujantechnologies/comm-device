@@ -33,6 +33,8 @@ _result_q: queue.Queue[ExpressionResult] = queue.Queue(maxsize=1)
 _event_q: queue.Queue[ExpressionResult] = queue.Queue(maxsize=1)
 _display_q: queue.Queue[tuple[ExpressionResult, str, str]] = queue.Queue(maxsize=1)
 _question_q: queue.Queue[str] = queue.Queue(maxsize=1)
+_question_capture_req_q: queue.Queue[bool] = queue.Queue(maxsize=1)
+_question_capture_result_q: queue.Queue[tuple[bool, str, str]] = queue.Queue(maxsize=1)
 # Separate queue so the display loop gets raw frames without competing with the
 # expression thread, which exclusively drains _frame_q.
 _display_frame_q: queue.Queue["np.ndarray"] = queue.Queue(maxsize=1)
@@ -149,6 +151,11 @@ def _llm_tts_thread(
         answer = event.label.value  # "yes" or "no"
         logger.info("User answered '%s' (conf=%.2f) to: %s", answer, event.confidence, question)
 
+        if not question.strip():
+            # Ignore gestures until caregiver question is captured in COMM mode.
+            logger.info("Ignoring gesture because no caregiver question is active")
+            continue
+
         if question.strip():
             response_text = llm.generate_intent_response(question, answer)
         else:
@@ -170,6 +177,52 @@ def _llm_tts_thread(
 
         response_audio = tts_response.synthesize(response_text)
         audio.play(response_audio)
+
+
+def _question_capture_thread(
+    cfg: object,
+    tts_question: TtsService,
+    audio: AudioRouter,
+) -> None:
+    while not _stop.is_set():
+        try:
+            _question_capture_req_q.get(timeout=0.1)
+        except queue.Empty:
+            continue
+
+        q_audio = "/tmp/comm_question.wav"
+        ok = record_mic_audio(
+            output_path=q_audio,
+            seconds=max(1, getattr(cfg, "mic_question_seconds")),
+            target=getattr(cfg, "audio_input_target"),
+        )
+
+        if not ok:
+            try:
+                _question_capture_result_q.put_nowait((False, "", "Mic capture failed. Check Bluetooth mic target."))
+            except queue.Full:
+                pass
+            continue
+
+        q_text = transcribe_audio(
+            q_audio,
+            model_name=getattr(cfg, "whisper_model_name"),
+            language="en",
+        ).strip()
+
+        if not q_text:
+            try:
+                _question_capture_result_q.put_nowait((False, "", "No speech recognized. Tap REC and try again."))
+            except queue.Full:
+                pass
+            continue
+
+        q_out = tts_question.synthesize(q_text, output_path="artifacts/question.wav")
+        audio.play(q_out)
+        try:
+            _question_capture_result_q.put_nowait((True, q_text, "Question captured. Waiting for user response..."))
+        except queue.Full:
+            pass
 
 
 # ------------------------------------------------------------------
@@ -207,6 +260,12 @@ def run() -> None:
             args=(llm, tts_response, store, feedback, audio),
             daemon=True,
             name="llm_tts",
+        ),
+        threading.Thread(
+            target=_question_capture_thread,
+            args=(cfg, tts_question, audio),
+            daemon=True,
+            name="question_capture",
         ),
     ]
     for t in threads:
@@ -285,43 +344,10 @@ def run() -> None:
             elif action == "capture_sample" and not training_mode and not question_capture_active:
                 question_capture_active = True
                 training_status = f"Listening to caregiver question ({cfg.mic_question_seconds}s)..."
-
-                q_audio = "/tmp/comm_question.wav"
-                ok = record_mic_audio(
-                    output_path=q_audio,
-                    seconds=max(1, cfg.mic_question_seconds),
-                    target=cfg.audio_input_target,
-                )
-                if ok:
-                    q_text = transcribe_audio(
-                        q_audio,
-                        model_name=cfg.whisper_model_name,
-                        language="en",
-                    )
-                    q_text = q_text.strip()
-                    if q_text:
-                        current_question = q_text
-                        try:
-                            _question_q.put_nowait(q_text)
-                        except queue.Full:
-                            try:
-                                _question_q.get_nowait()
-                            except queue.Empty:
-                                pass
-                            try:
-                                _question_q.put_nowait(q_text)
-                            except queue.Full:
-                                pass
-
-                        _put_display(None, current_question, current_response)
-                        q_out = tts_question.synthesize(current_question, output_path="artifacts/question.wav")
-                        audio.play(q_out)
-                        training_status = "Question captured. Waiting for user ASL response..."
-                    else:
-                        training_status = "No speech recognized. Tap REC and try again."
-                else:
-                    training_status = "Mic capture failed. Check Bluetooth mic target."
-                question_capture_active = False
+                try:
+                    _question_capture_req_q.put_nowait(True)
+                except queue.Full:
+                    pass
             elif action == "fit_model" and training_mode:
                 min_samples = max(20, len(intent_labels) * 6)
                 ok = training_store.train(min_samples=min_samples)
@@ -359,6 +385,28 @@ def run() -> None:
                         )
                     else:
                         training_status = "capture failed: no frames"
+
+            if question_capture_active and not training_mode:
+                try:
+                    ok, q_text, status = _question_capture_result_q.get_nowait()
+                    question_capture_active = False
+                    training_status = status
+                    if ok and q_text:
+                        current_question = q_text
+                        try:
+                            _question_q.put_nowait(q_text)
+                        except queue.Full:
+                            try:
+                                _question_q.get_nowait()
+                            except queue.Empty:
+                                pass
+                            try:
+                                _question_q.put_nowait(q_text)
+                            except queue.Full:
+                                pass
+                        _put_display(None, current_question, current_response)
+                except queue.Empty:
+                    pass
 
             display.render(
                 display_frame_id,

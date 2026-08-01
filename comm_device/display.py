@@ -57,6 +57,7 @@ class DisplayService:
         self.height = height
         self._screen: Optional[object] = None
         self._font_xl: Optional[object] = None
+        self._font_md: Optional[object] = None
         self._font_sm: Optional[object] = None
         self._should_quit = False
         self._last_action = ""
@@ -106,12 +107,14 @@ class DisplayService:
         pygame.display.set_caption("Comm Device")
         pygame.mouse.set_visible(True)  # show cursor so touch targets are visible
         self._font_xl = pygame.font.SysFont("monospace", 90, bold=True)
+        self._font_md = pygame.font.SysFont("monospace", 20, bold=True)
         self._font_sm = pygame.font.SysFont("monospace", 16)
         self._close_rect = pygame.Rect(self.width - 48, 0, 48, 48)
-        self._mode_rect = pygame.Rect(4, 4, 76, 28)
-        self._intent_rect = pygame.Rect(86, 4, 88, 28)
-        self._rec_rect = pygame.Rect(self.width - 172, self.height - 32, 80, 28)
-        self._fit_rect = pygame.Rect(self.width - 86, self.height - 32, 80, 28)
+        # Large touch targets for 3.5" screen
+        self._mode_rect = pygame.Rect(4, 4, 94, 40)
+        self._intent_rect = pygame.Rect(104, 4, 104, 40)
+        self._rec_rect = pygame.Rect(self.width - 210, 4, 74, 40)
+        self._fit_rect = pygame.Rect(self.width - 132, 4, 74, 40)
         logger.info("Display initialised at %dx%d", self.width, self.height)
 
     def render(
@@ -140,12 +143,12 @@ class DisplayService:
                 if event.key in (pygame.K_ESCAPE, pygame.K_q):
                     self._should_quit = True
                     return
-            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.FINGERDOWN, pygame.FINGERUP):
                 pos = (
                     event.x if event.type == pygame.FINGERDOWN else event.pos[0],
                     event.y if event.type == pygame.FINGERDOWN else event.pos[1],
                 )
-                if event.type == pygame.FINGERDOWN:
+                if event.type in (pygame.FINGERDOWN, pygame.FINGERUP):
                     # FINGERDOWN x/y are 0-1 normalised; convert to pixels
                     pos = (int(event.x * self.width), int(event.y * self.height))
                 if self._close_rect and self._close_rect.collidepoint(pos):
@@ -161,35 +164,38 @@ class DisplayService:
                     self._last_action = "fit_model"
 
         self._screen.fill(_DARK)
-        half = self.width // 2
+        # Slightly smaller camera panel to make controls/text clearer on 3.5" screen.
+        cam_w = int(self.width * 0.42)
+        right_x = cam_w + 6
+        right_w = self.width - right_x - 4
 
         # Left: camera feed (rotated 90° clockwise for sideways-mounted camera)
         if frame is not None:
             try:
-                cam_h = self.height - 32
+                cam_h = self.height - 94
                 crop = frame
                 surf = pygame.surfarray.make_surface(
                     np.ascontiguousarray(crop.swapaxes(0, 1))
                 )
                 # rotate() is CCW; -90 = 90° clockwise
                 surf = pygame.transform.rotate(surf, -90)
-                surf = pygame.transform.scale(surf, (half, cam_h))
-                self._screen.blit(surf, (0, 0))
+                surf = pygame.transform.scale(surf, (cam_w, cam_h))
+                self._screen.blit(surf, (0, 50))
             except Exception:
                 pass
 
         # Right: YES / NO badge
         color = _LABEL_COLORS[result.label]
         badge = self._font_xl.render(result.label.value.upper(), True, color)
-        bx = half + (half - badge.get_width()) // 2
-        by = (self.height // 2 - badge.get_height()) // 2
+        bx = right_x + (right_w - badge.get_width()) // 2
+        by = 58
         self._screen.blit(badge, (bx, by))
 
         # Confidence bar
         bar_w = max(1, int(result.confidence * (half - 20)))
         pygame.draw.rect(
             self._screen, color,
-            pygame.Rect(half + 10, by + badge.get_height() + 6, bar_w, 8),
+            pygame.Rect(right_x + 10, by + badge.get_height() + 6, min(bar_w, right_w - 20), 10),
         )
 
         # Bottom: current question (spoken prompt)
@@ -200,10 +206,10 @@ class DisplayService:
 
         # Right panel: final response text
         if response:
-            lines = self._wrap(response, 22)[:4]
+            lines = self._wrap(response, 22)[:5]
             for i, line in enumerate(lines):
                 txt = self._font_sm.render(line, True, _WHITE)
-                self._screen.blit(txt, (half + 10, self.height // 2 + 12 + i * 17))
+                self._screen.blit(txt, (right_x + 10, by + badge.get_height() + 24 + i * 17))
 
         # Frame counter
         fc = self._font_sm.render(f"#{frame_id}", True, (60, 60, 60))
@@ -212,27 +218,31 @@ class DisplayService:
         # Mode and training controls
         if self._mode_rect:
             pygame.draw.rect(self._screen, (40, 80, 160), self._mode_rect, border_radius=5)
-            mode_txt = self._font_sm.render(f"MODE:{mode}", True, _WHITE)
-            self._screen.blit(mode_txt, (self._mode_rect.x + 4, self._mode_rect.y + 6))
+            mode_txt = self._font_md.render(f"MODE", True, _WHITE)
+            self._screen.blit(mode_txt, (self._mode_rect.x + 12, self._mode_rect.y + 8))
+            mode_val = self._font_sm.render(mode, True, _WHITE)
+            self._screen.blit(mode_val, (self._mode_rect.x + 28, self._mode_rect.y + 24))
 
         if self._intent_rect:
             pygame.draw.rect(self._screen, (90, 90, 90), self._intent_rect, border_radius=5)
-            itxt = self._font_sm.render(f"INT:{training_intent[:6]}", True, _WHITE)
-            self._screen.blit(itxt, (self._intent_rect.x + 4, self._intent_rect.y + 6))
+            itxt = self._font_md.render("INT", True, _WHITE)
+            self._screen.blit(itxt, (self._intent_rect.x + 30, self._intent_rect.y + 8))
+            ival = self._font_sm.render(training_intent[:10], True, _WHITE)
+            self._screen.blit(ival, (self._intent_rect.x + 8, self._intent_rect.y + 24))
 
         if self._rec_rect:
             pygame.draw.rect(self._screen, (150, 70, 30), self._rec_rect, border_radius=5)
-            rec_txt = self._font_sm.render("REC", True, _WHITE)
-            self._screen.blit(rec_txt, (self._rec_rect.x + 24, self._rec_rect.y + 6))
+            rec_txt = self._font_md.render("REC", True, _WHITE)
+            self._screen.blit(rec_txt, (self._rec_rect.x + 14, self._rec_rect.y + 8))
 
         if self._fit_rect:
             pygame.draw.rect(self._screen, (40, 130, 70), self._fit_rect, border_radius=5)
-            fit_txt = self._font_sm.render("FIT", True, _WHITE)
-            self._screen.blit(fit_txt, (self._fit_rect.x + 24, self._fit_rect.y + 6))
+            fit_txt = self._font_md.render("FIT", True, _WHITE)
+            self._screen.blit(fit_txt, (self._fit_rect.x + 14, self._fit_rect.y + 8))
 
         if training_status:
             stxt = self._font_sm.render(training_status[:54], True, _WHITE)
-            self._screen.blit(stxt, (4, self.height - 52))
+            self._screen.blit(stxt, (4, self.height - 20))
 
         # Close button — always on top
         if self._close_rect:
