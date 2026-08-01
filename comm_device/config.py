@@ -10,6 +10,16 @@ class AppConfig:
     model_path: str = os.getenv("COMM_MODEL_PATH", "models/gemma3-1b-Q4_K_M.gguf")
     # Piper voice model (.onnx) — download via install.sh
     voice_model_path: str = os.getenv("COMM_VOICE_MODEL_PATH", "models/en_US-lessac-medium.onnx")
+    # Optional dedicated voice model for caregiver question playback (Voice 1)
+    question_voice_model_path: str = os.getenv(
+        "COMM_QUESTION_VOICE_MODEL_PATH",
+        os.getenv("COMM_VOICE_MODEL_PATH", "models/en_US-lessac-medium.onnx"),
+    )
+    # Optional dedicated voice model for user response playback (Voice 2)
+    response_voice_model_path: str = os.getenv(
+        "COMM_RESPONSE_VOICE_MODEL_PATH",
+        os.getenv("COMM_VOICE_MODEL_PATH", "models/en_US-lessac-medium.onnx"),
+    )
     # Sklearn classifier persisted via train_classifier.py
     classifier_path: str = os.getenv("COMM_CLASSIFIER_PATH", "models/classifier.pkl")
     # MediaPipe face landmarker task file — download via install.sh
@@ -43,6 +53,7 @@ class AppConfig:
         "COMM_ASL_TRAINING_INTENTS", "yes,no,water,pain,rest,help"
     )
     whisper_model_name: str = os.getenv("COMM_WHISPER_MODEL", "tiny")
+    mic_question_seconds: int = int(os.getenv("COMM_MIC_QUESTION_SECONDS", "10"))
     # Framebuffer device for the SPI display.
     # Pi 5: legacy fb0 (bcm2708_fb doesn't load, SPI display takes fb0).
     # Pi 4 and earlier: fb1 (VC4 firmware claims fb0 first).

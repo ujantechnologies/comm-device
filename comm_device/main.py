@@ -7,7 +7,14 @@ import threading
 import time
 from typing import Optional
 
-from .asl_intent import AslIntentStore, extract_window_feature, format_intent_counts, parse_intents
+from .asl_intent import (
+    AslIntentStore,
+    extract_window_feature,
+    format_intent_counts,
+    parse_intents,
+    record_mic_audio,
+    transcribe_audio,
+)
 from .audio_router import AudioRouter
 from .camera import CameraService, FrameData
 from .config import load_config
@@ -25,6 +32,7 @@ _frame_q: queue.Queue[FrameData] = queue.Queue(maxsize=2)
 _result_q: queue.Queue[ExpressionResult] = queue.Queue(maxsize=1)
 _event_q: queue.Queue[ExpressionResult] = queue.Queue(maxsize=1)
 _display_q: queue.Queue[tuple[ExpressionResult, str, str]] = queue.Queue(maxsize=1)
+_question_q: queue.Queue[str] = queue.Queue(maxsize=1)
 # Separate queue so the display loop gets raw frames without competing with the
 # expression thread, which exclusively drains _frame_q.
 _display_frame_q: queue.Queue["np.ndarray"] = queue.Queue(maxsize=1)
@@ -115,7 +123,7 @@ def _put_display(event: Optional[ExpressionResult], question: str, response: str
 
 def _llm_tts_thread(
     llm: LlmService,
-    tts: TtsService,
+    tts_response: TtsService,
     store: DataStore,
     feedback: FeedbackService,
     audio: AudioRouter,
@@ -126,6 +134,13 @@ def _llm_tts_thread(
     question = ""
 
     while not _stop.is_set():
+        # Keep the most recent caregiver question from mic capture.
+        try:
+            while True:
+                question = _question_q.get_nowait()
+        except queue.Empty:
+            pass
+
         try:
             event = _event_q.get(timeout=0.1)
         except queue.Empty:
@@ -134,7 +149,10 @@ def _llm_tts_thread(
         answer = event.label.value  # "yes" or "no"
         logger.info("User answered '%s' (conf=%.2f) to: %s", answer, event.confidence, question)
 
-        response_text = llm.generate_response(event.label)
+        if question.strip():
+            response_text = llm.generate_intent_response(question, answer)
+        else:
+            response_text = llm.generate_response(event.label)
         logger.info("LLM response for %s: %s", event.label.value, response_text)
         store.save_response(event.label, response_text)
 
@@ -150,7 +168,7 @@ def _llm_tts_thread(
         # Show the user's response and the final response on the display
         _put_display(event, question, response_text)
 
-        response_audio = tts.synthesize(response_text)
+        response_audio = tts_response.synthesize(response_text)
         audio.play(response_audio)
 
 
@@ -168,7 +186,8 @@ def run() -> None:
     camera = CameraService(imx500_config_path=cfg.imx500_config_path)
     expression = ExpressionService(model_path=cfg.face_landmarker_path)
     llm = LlmService(cfg.model_path)
-    tts = TtsService(cfg.voice_model_path)
+    tts_question = TtsService(cfg.question_voice_model_path)
+    tts_response = TtsService(cfg.response_voice_model_path)
     display = DisplayService(cfg.display_width, cfg.display_height, cfg.fbdev)
     store = DataStore(cfg.db_path)
     feedback = FeedbackService(cfg.feedback_window_seconds)
@@ -185,7 +204,7 @@ def run() -> None:
         threading.Thread(target=_expression_thread, args=(expression,), daemon=True, name="expression"),
         threading.Thread(
             target=_llm_tts_thread,
-            args=(llm, tts, store, feedback, audio),
+            args=(llm, tts_response, store, feedback, audio),
             daemon=True,
             name="llm_tts",
         ),
@@ -215,6 +234,7 @@ def run() -> None:
     capture_warmup_end = 0.0
     capture_end = 0.0
     capture_frames: list["np.ndarray"] = []
+    question_capture_active = False
 
     # Show any existing dataset stats once at startup
     X0, y0 = training_store.load_samples()
@@ -262,6 +282,46 @@ def run() -> None:
                     f"warmup={cfg.asl_warmup_seconds:.1f}s "
                     f"window={cfg.asl_response_window_seconds}s"
                 )
+            elif action == "capture_sample" and not training_mode and not question_capture_active:
+                question_capture_active = True
+                training_status = f"Listening to caregiver question ({cfg.mic_question_seconds}s)..."
+
+                q_audio = "/tmp/comm_question.wav"
+                ok = record_mic_audio(
+                    output_path=q_audio,
+                    seconds=max(1, cfg.mic_question_seconds),
+                    target=cfg.audio_input_target,
+                )
+                if ok:
+                    q_text = transcribe_audio(
+                        q_audio,
+                        model_name=cfg.whisper_model_name,
+                        language="en",
+                    )
+                    q_text = q_text.strip()
+                    if q_text:
+                        current_question = q_text
+                        try:
+                            _question_q.put_nowait(q_text)
+                        except queue.Full:
+                            try:
+                                _question_q.get_nowait()
+                            except queue.Empty:
+                                pass
+                            try:
+                                _question_q.put_nowait(q_text)
+                            except queue.Full:
+                                pass
+
+                        _put_display(None, current_question, current_response)
+                        q_out = tts_question.synthesize(current_question, output_path="artifacts/question.wav")
+                        audio.play(q_out)
+                        training_status = "Question captured. Waiting for user ASL response..."
+                    else:
+                        training_status = "No speech recognized. Tap REC and try again."
+                else:
+                    training_status = "Mic capture failed. Check Bluetooth mic target."
+                question_capture_active = False
             elif action == "fit_model" and training_mode:
                 min_samples = max(20, len(intent_labels) * 6)
                 ok = training_store.train(min_samples=min_samples)
