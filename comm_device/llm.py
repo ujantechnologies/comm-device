@@ -134,3 +134,34 @@ class LlmService:
         except Exception as exc:
             logger.error("Question generation error: %s", exc)
             return fallbacks[len(history) % len(fallbacks)]
+
+    def generate_intent_response(self, question: str, intent: str) -> str:
+        """Turn recognized intent into a spoken response for a heard question."""
+        fallback = f"I understood the response intent as {intent}."
+        if self._llm is None:
+            return fallback
+
+        prompt = (
+            "<start_of_turn>user\n"
+            "You are an AAC communication assistant. "
+            "A caregiver question was transcribed and the user's ASL response "
+            "was recognized as an intent label.\n"
+            f"Question: {question}\n"
+            f"Intent label: {intent}\n"
+            "Speak one short clear sentence in first person as the user's answer. "
+            "Do not mention model uncertainty or internal labels.\n"
+            "<end_of_turn>\n"
+            "<start_of_turn>model\n"
+        )
+        try:
+            out = self._llm(
+                prompt,
+                max_tokens=64,
+                stop=["<end_of_turn>", "\n"],
+                temperature=0.5,
+            )
+            text = out["choices"][0]["text"].strip()
+            return text if text else fallback
+        except Exception as exc:
+            logger.error("Intent response generation error: %s", exc)
+            return fallback

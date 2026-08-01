@@ -16,6 +16,9 @@ class AppConfig:
     face_landmarker_path: str = os.getenv("COMM_FACE_LANDMARKER_PATH", "models/face_landmarker.task")
     # Optional IMX500 face-detection JSON (leave empty to skip IMX500 DNN)
     imx500_config_path: str = os.getenv("COMM_IMX500_CONFIG_PATH", "")
+    # Optional explicit audio input target (PipeWire source), e.g.
+    # bluez_input.CF:57:28:DC:04:87
+    audio_input_target: str = os.getenv("COMM_AUDIO_INPUT_TARGET", "")
     db_path: str = os.getenv("COMM_DB_PATH", "artifacts/comm_device.sqlite3")
     # Seconds to wait for GPIO feedback after a prediction
     feedback_window_seconds: int = int(os.getenv("COMM_FEEDBACK_WINDOW_SECONDS", "5"))
@@ -26,6 +29,17 @@ class AppConfig:
     # Optional explicit audio output target (PipeWire node name), e.g.
     # bluez_output.CF_57_28_DC_04_87.1
     audio_output_target: str = os.getenv("COMM_AUDIO_OUTPUT_TARGET", "")
+    # Personalized ASL intent classifier artifacts.
+    asl_intent_model_path: str = os.getenv(
+        "COMM_ASL_INTENT_MODEL_PATH", "models/asl_intent_classifier.pkl"
+    )
+    asl_intent_dataset_path: str = os.getenv(
+        "COMM_ASL_INTENT_DATASET_PATH", "artifacts/asl_intent_samples.npz"
+    )
+    # Default capture timings for slower ASL responses.
+    asl_response_window_seconds: int = int(os.getenv("COMM_ASL_RESPONSE_WINDOW_SECONDS", "10"))
+    asl_warmup_seconds: float = float(os.getenv("COMM_ASL_WARMUP_SECONDS", "1.5"))
+    whisper_model_name: str = os.getenv("COMM_WHISPER_MODEL", "tiny")
     # Framebuffer device for the SPI display.
     # Pi 5: legacy fb0 (bcm2708_fb doesn't load, SPI display takes fb0).
     # Pi 4 and earlier: fb1 (VC4 firmware claims fb0 first).
