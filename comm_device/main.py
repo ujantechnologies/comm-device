@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Optional
 
+from .asl_intent import AslIntentStore, extract_window_feature, format_intent_counts, parse_intents
 from .audio_router import AudioRouter
 from .camera import CameraService, FrameData
 from .config import load_config
@@ -119,14 +120,10 @@ def _llm_tts_thread(
     feedback: FeedbackService,
     audio: AudioRouter,
 ) -> None:
-    history: list[tuple[str, str]] = []  # (question, answer) pairs
-
-    # Generate and speak the opening question before waiting for any gesture
-    question = llm.generate_question(history)
-    logger.info("Opening question: %s", question)
-    _put_display(None, question, "")
-    audio_path = tts.synthesize(question)
-    audio.play(audio_path)
+    # In app mode we do not auto-speak generated prompts at startup.
+    # Caregiver-led questions can come from the microphone workflow scripts,
+    # while this loop focuses on producing spoken responses from detected intent.
+    question = ""
 
     while not _stop.is_set():
         try:
@@ -136,8 +133,6 @@ def _llm_tts_thread(
 
         answer = event.label.value  # "yes" or "no"
         logger.info("User answered '%s' (conf=%.2f) to: %s", answer, event.confidence, question)
-
-        history.append((question, answer))
 
         response_text = llm.generate_response(event.label)
         logger.info("LLM response for %s: %s", event.label.value, response_text)
@@ -157,13 +152,6 @@ def _llm_tts_thread(
 
         response_audio = tts.synthesize(response_text)
         audio.play(response_audio)
-
-        # Generate and speak the follow-up question
-        question = llm.generate_question(history)
-        logger.info("Next question: %s", question)
-        _put_display(None, question, response_text)
-        audio_path = tts.synthesize(question)
-        audio.play(audio_path)
 
 
 # ------------------------------------------------------------------
@@ -185,6 +173,10 @@ def run() -> None:
     store = DataStore(cfg.db_path)
     feedback = FeedbackService(cfg.feedback_window_seconds)
     audio = AudioRouter(output_target=cfg.audio_output_target)
+    training_store = AslIntentStore(
+        dataset_path=cfg.asl_intent_dataset_path,
+        model_path=cfg.asl_intent_model_path,
+    )
 
     camera.start()
 
@@ -214,6 +206,21 @@ def run() -> None:
     current_response = ""
     display_frame_id = 0
 
+    # In-app training mode state
+    training_mode = False
+    intent_labels = parse_intents(cfg.asl_training_intents) or ["yes", "no", "help"]
+    intent_idx = 0
+    training_status = "COMM mode"
+    capture_active = False
+    capture_warmup_end = 0.0
+    capture_end = 0.0
+    capture_frames: list["np.ndarray"] = []
+
+    # Show any existing dataset stats once at startup
+    X0, y0 = training_store.load_samples()
+    if len(X0):
+        training_status = f"samples={len(X0)} [{format_intent_counts(y0)}]"
+
     try:
         while not _stop.is_set():
             display_frame_id += 1
@@ -236,11 +243,71 @@ def run() -> None:
             except queue.Empty:
                 pass
 
+            action = display.consume_action()
+            if action == "toggle_mode":
+                training_mode = not training_mode
+                mode_name = "TRAIN" if training_mode else "COMM"
+                training_status = f"{mode_name} mode"
+            elif action == "next_intent":
+                intent_idx = (intent_idx + 1) % len(intent_labels)
+                training_status = f"intent={intent_labels[intent_idx]}"
+            elif action == "capture_sample" and training_mode and not capture_active:
+                capture_active = True
+                now = time.monotonic()
+                capture_warmup_end = now + max(0.0, cfg.asl_warmup_seconds)
+                capture_end = capture_warmup_end + max(1, cfg.asl_response_window_seconds)
+                capture_frames = []
+                training_status = (
+                    f"recording intent={intent_labels[intent_idx]} "
+                    f"warmup={cfg.asl_warmup_seconds:.1f}s "
+                    f"window={cfg.asl_response_window_seconds}s"
+                )
+            elif action == "fit_model" and training_mode:
+                min_samples = max(20, len(intent_labels) * 6)
+                ok = training_store.train(min_samples=min_samples)
+                if ok:
+                    training_status = f"trained model at {cfg.asl_intent_model_path}"
+                else:
+                    Xc, _yc = training_store.load_samples()
+                    training_status = f"need >= {min_samples} samples (have {len(Xc)})"
+
+            if capture_active and training_mode:
+                now = time.monotonic()
+                if now < capture_warmup_end:
+                    remaining = max(0.0, capture_warmup_end - now)
+                    training_status = (
+                        f"warmup {remaining:.1f}s intent={intent_labels[intent_idx]}"
+                    )
+                elif now <= capture_end:
+                    if raw_frame is not None:
+                        capture_frames.append(raw_frame.copy())
+                    remaining = max(0.0, capture_end - now)
+                    training_status = (
+                        f"capturing {remaining:.1f}s intent={intent_labels[intent_idx]} "
+                        f"frames={len(capture_frames)}"
+                    )
+                else:
+                    capture_active = False
+                    if capture_frames:
+                        feat = extract_window_feature(capture_frames)
+                        intent = intent_labels[intent_idx]
+                        training_store.append_sample(intent, feat)
+                        Xc, yc = training_store.load_samples()
+                        training_status = (
+                            f"saved '{intent}' total={len(Xc)} "
+                            f"[{format_intent_counts(yc)}]"
+                        )
+                    else:
+                        training_status = "capture failed: no frames"
+
             display.render(
                 display_frame_id,
                 current_result,
+                "TRAIN" if training_mode else "COMM",
                 current_question,
                 current_response,
+                intent_labels[intent_idx],
+                training_status,
                 raw_frame,
             )
             if display.should_quit:

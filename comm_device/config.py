@@ -39,6 +39,9 @@ class AppConfig:
     # Default capture timings for slower ASL responses.
     asl_response_window_seconds: int = int(os.getenv("COMM_ASL_RESPONSE_WINDOW_SECONDS", "10"))
     asl_warmup_seconds: float = float(os.getenv("COMM_ASL_WARMUP_SECONDS", "1.5"))
+    asl_training_intents: str = os.getenv(
+        "COMM_ASL_TRAINING_INTENTS", "yes,no,water,pain,rest,help"
+    )
     whisper_model_name: str = os.getenv("COMM_WHISPER_MODEL", "tiny")
     # Framebuffer device for the SPI display.
     # Pi 5: legacy fb0 (bcm2708_fb doesn't load, SPI display takes fb0).

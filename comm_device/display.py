@@ -59,8 +59,13 @@ class DisplayService:
         self._font_xl: Optional[object] = None
         self._font_sm: Optional[object] = None
         self._should_quit = False
+        self._last_action = ""
         # Close button — top-right corner, finger-friendly 48×48 px
         self._close_rect: Optional[object] = None
+        self._mode_rect: Optional[object] = None
+        self._intent_rect: Optional[object] = None
+        self._rec_rect: Optional[object] = None
+        self._fit_rect: Optional[object] = None
 
         if _HAS_PYGAME:
             os.environ["SDL_FBDEV"] = fbdev
@@ -69,6 +74,11 @@ class DisplayService:
     @property
     def should_quit(self) -> bool:
         return self._should_quit
+
+    def consume_action(self) -> str:
+        action = self._last_action
+        self._last_action = ""
+        return action
 
     def _init_pygame(self) -> None:
         pygame.init()
@@ -98,14 +108,21 @@ class DisplayService:
         self._font_xl = pygame.font.SysFont("monospace", 90, bold=True)
         self._font_sm = pygame.font.SysFont("monospace", 16)
         self._close_rect = pygame.Rect(self.width - 48, 0, 48, 48)
+        self._mode_rect = pygame.Rect(4, 4, 76, 28)
+        self._intent_rect = pygame.Rect(86, 4, 88, 28)
+        self._rec_rect = pygame.Rect(self.width - 172, self.height - 32, 80, 28)
+        self._fit_rect = pygame.Rect(self.width - 86, self.height - 32, 80, 28)
         logger.info("Display initialised at %dx%d", self.width, self.height)
 
     def render(
         self,
         frame_id: int,
         result: ExpressionResult,
+        mode: str,
         question: str,
         response: str,
+        training_intent: str = "",
+        training_status: str = "",
         frame: Optional[np.ndarray] = None,
     ) -> None:
         if not _HAS_PYGAME or self._screen is None:
@@ -134,6 +151,14 @@ class DisplayService:
                 if self._close_rect and self._close_rect.collidepoint(pos):
                     self._should_quit = True
                     return
+                if self._mode_rect and self._mode_rect.collidepoint(pos):
+                    self._last_action = "toggle_mode"
+                if self._intent_rect and self._intent_rect.collidepoint(pos):
+                    self._last_action = "next_intent"
+                if self._rec_rect and self._rec_rect.collidepoint(pos):
+                    self._last_action = "capture_sample"
+                if self._fit_rect and self._fit_rect.collidepoint(pos):
+                    self._last_action = "fit_model"
 
         self._screen.fill(_DARK)
         half = self.width // 2
@@ -183,6 +208,31 @@ class DisplayService:
         # Frame counter
         fc = self._font_sm.render(f"#{frame_id}", True, (60, 60, 60))
         self._screen.blit(fc, (self.width - fc.get_width() - 52, 4))
+
+        # Mode and training controls
+        if self._mode_rect:
+            pygame.draw.rect(self._screen, (40, 80, 160), self._mode_rect, border_radius=5)
+            mode_txt = self._font_sm.render(f"MODE:{mode}", True, _WHITE)
+            self._screen.blit(mode_txt, (self._mode_rect.x + 4, self._mode_rect.y + 6))
+
+        if self._intent_rect:
+            pygame.draw.rect(self._screen, (90, 90, 90), self._intent_rect, border_radius=5)
+            itxt = self._font_sm.render(f"INT:{training_intent[:6]}", True, _WHITE)
+            self._screen.blit(itxt, (self._intent_rect.x + 4, self._intent_rect.y + 6))
+
+        if self._rec_rect:
+            pygame.draw.rect(self._screen, (150, 70, 30), self._rec_rect, border_radius=5)
+            rec_txt = self._font_sm.render("REC", True, _WHITE)
+            self._screen.blit(rec_txt, (self._rec_rect.x + 24, self._rec_rect.y + 6))
+
+        if self._fit_rect:
+            pygame.draw.rect(self._screen, (40, 130, 70), self._fit_rect, border_radius=5)
+            fit_txt = self._font_sm.render("FIT", True, _WHITE)
+            self._screen.blit(fit_txt, (self._fit_rect.x + 24, self._fit_rect.y + 6))
+
+        if training_status:
+            stxt = self._font_sm.render(training_status[:54], True, _WHITE)
+            self._screen.blit(stxt, (4, self.height - 52))
 
         # Close button — always on top
         if self._close_rect:
