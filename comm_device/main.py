@@ -11,7 +11,10 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from .asl_intent import (
+    AslIntentClassifier,
     AslIntentStore,
     extract_window_feature,
     format_intent_counts,
@@ -183,6 +186,78 @@ def _put_display(event: Optional[ExpressionResult], question: str, response: str
             pass
 
 
+def _safe_name(raw: str) -> str:
+    safe = "".join(ch if ch.isalnum() else "_" for ch in raw.strip().lower())
+    return safe[:24] or "intent"
+
+
+def _save_training_video_npz(
+    video_dir: str,
+    frames: list[np.ndarray],
+    intent: str,
+) -> tuple[bool, str]:
+    if not frames:
+        return False, "No frames available for training video."
+
+    out_dir = Path(video_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    out_path = out_dir / f"{ts}_{_safe_name(intent)}.npz"
+
+    try:
+        np.savez_compressed(out_path, frames=np.stack(frames, axis=0))
+        return True, str(out_path)
+    except Exception as exc:
+        logger.error("Failed to save training video artifact: %s", exc)
+        return False, "Failed to save training video artifact."
+
+
+def _play_training_video_npz(
+    display: DisplayService,
+    path: str,
+    result: ExpressionResult,
+    mode: str,
+    question: str,
+    response: str,
+    training_intent: str,
+) -> tuple[bool, str]:
+    video_path = Path(path)
+    if not video_path.exists():
+        return False, "Training video file not found."
+
+    try:
+        data = np.load(video_path, allow_pickle=False)
+        frames = data["frames"]
+    except Exception as exc:
+        logger.error("Failed to load training video: %s", exc)
+        return False, "Could not read training video file."
+
+    if len(frames) == 0:
+        return False, "Training video has no frames."
+
+    for idx, frame in enumerate(frames):
+        display.render(
+            idx + 1,
+            result,
+            mode,
+            question,
+            response,
+            training_intent,
+            "Reviewing video... tap any button to stop",
+            frame,
+        )
+        if display.should_quit:
+            return False, "Playback interrupted: app close requested."
+
+        action = display.consume_action()
+        if action:
+            break
+
+        time.sleep(1 / 8)
+
+    return True, f"Reviewed {len(frames)} training frames."
+
+
 def _llm_tts_thread(
     llm: LlmService,
     tts_response: TtsService,
@@ -306,6 +381,7 @@ def run() -> None:
         dataset_path=cfg.asl_intent_dataset_path,
         model_path=cfg.asl_intent_model_path,
     )
+    training_trigger_classifier = AslIntentClassifier(cfg.asl_intent_model_path)
 
     camera.start()
 
@@ -350,12 +426,83 @@ def run() -> None:
     capture_warmup_end = 0.0
     capture_end = 0.0
     capture_frames: list["np.ndarray"] = []
+    capture_question = ""
+    training_question_history: list[tuple[str, str]] = []
+    trigger_frames: list[np.ndarray] = []
+    trigger_last_fire = 0.0
+    trigger_next_eval = 0.0
+    trigger_warned_unavailable = False
     question_capture_active = False
 
     # Show any existing dataset stats once at startup
     X0, y0 = training_store.load_samples()
     if len(X0):
         training_status = f"samples={len(X0)} [{format_intent_counts(y0)}]"
+
+    def _begin_training_capture(source: str) -> None:
+        nonlocal capture_active
+        nonlocal capture_warmup_end
+        nonlocal capture_end
+        nonlocal capture_frames
+        nonlocal capture_question
+        nonlocal current_question
+        nonlocal current_response
+        nonlocal training_status
+
+        if capture_active:
+            return
+
+        target_intent = intent_labels[intent_idx]
+
+        if cfg.training_strict_local_llm:
+            ok_q, question_text = llm.generate_training_question(
+                training_question_history,
+                target_intent,
+                temperature=cfg.training_question_temperature,
+            )
+            if not ok_q:
+                training_status = question_text
+                return
+        else:
+            if llm.is_local_model_ready:
+                ok_q, question_text = llm.generate_training_question(
+                    training_question_history,
+                    target_intent,
+                    temperature=cfg.training_question_temperature,
+                )
+            else:
+                ok_q, question_text = True, llm.generate_question(training_question_history)
+
+            if not ok_q or not question_text:
+                training_status = "Could not generate training question."
+                return
+
+        current_question = question_text
+        current_response = ""
+        capture_question = question_text
+        _put_display(None, current_question, current_response)
+
+        try:
+            q_out = tts_question.synthesize(
+                question_text,
+                output_path="artifacts/training_question.wav",
+            )
+            audio.play(q_out)
+        except Exception as exc:
+            logger.error("Training question playback error: %s", exc)
+            training_status = "Question generated but playback failed."
+            return
+
+        capture_active = True
+        now = time.monotonic()
+        capture_warmup_end = now + max(0.0, cfg.asl_warmup_seconds)
+        capture_end = capture_warmup_end + max(1, cfg.asl_response_window_seconds)
+        capture_frames = []
+        training_status = (
+            f"{source} trigger: recording intent={target_intent} "
+            f"warmup={cfg.asl_warmup_seconds:.1f}s "
+            f"window={cfg.asl_response_window_seconds}s"
+        )
 
     try:
         while not _stop.is_set():
@@ -384,20 +531,17 @@ def run() -> None:
                 training_mode = not training_mode
                 mode_name = "TRAIN" if training_mode else "COMM"
                 training_status = f"{mode_name} mode"
+                trigger_frames = []
+                if training_mode and cfg.training_strict_local_llm and not llm.is_local_model_ready:
+                    training_status = (
+                        "TRAIN mode needs local LLM model for questions. "
+                        "Check COMM_MODEL_PATH and restart."
+                    )
             elif action == "next_intent":
                 intent_idx = (intent_idx + 1) % len(intent_labels)
                 training_status = f"intent={intent_labels[intent_idx]}"
             elif action == "capture_sample" and training_mode and not capture_active:
-                capture_active = True
-                now = time.monotonic()
-                capture_warmup_end = now + max(0.0, cfg.asl_warmup_seconds)
-                capture_end = capture_warmup_end + max(1, cfg.asl_response_window_seconds)
-                capture_frames = []
-                training_status = (
-                    f"recording intent={intent_labels[intent_idx]} "
-                    f"warmup={cfg.asl_warmup_seconds:.1f}s "
-                    f"window={cfg.asl_response_window_seconds}s"
-                )
+                _begin_training_capture("REC")
             elif action == "capture_sample" and not training_mode and not question_capture_active:
                 question_capture_active = True
                 training_status = f"Listening to caregiver question ({cfg.mic_question_seconds}s)..."
@@ -405,10 +549,44 @@ def run() -> None:
                     _question_capture_req_q.put_nowait(True)
                 except queue.Full:
                     pass
+            elif action == "review_video" and training_mode:
+                latest = store.get_latest_training_video()
+                if latest is None:
+                    training_status = "No saved training video to review."
+                else:
+                    ok_play, status = _play_training_video_npz(
+                        display,
+                        str(latest["file_path"]),
+                        current_result,
+                        "TRAIN",
+                        current_question,
+                        current_response,
+                        intent_labels[intent_idx],
+                    )
+                    training_status = status
+                    if ok_play:
+                        _put_display(None, current_question, current_response)
+            elif action == "delete_video" and training_mode:
+                latest = store.get_latest_training_video()
+                if latest is None:
+                    training_status = "No saved training video to delete."
+                else:
+                    removed_path = store.delete_training_video(int(latest["id"]))
+                    if not removed_path:
+                        training_status = "Failed to delete training video metadata."
+                    else:
+                        try:
+                            Path(removed_path).unlink(missing_ok=True)
+                            training_status = "Deleted latest training video."
+                        except Exception as exc:
+                            logger.error("Training video delete error: %s", exc)
+                            training_status = "Deleted metadata but file removal failed."
             elif action == "fit_model" and training_mode:
                 min_samples = max(20, len(intent_labels) * 6)
                 ok = training_store.train(min_samples=min_samples)
                 if ok:
+                    training_trigger_classifier = AslIntentClassifier(cfg.asl_intent_model_path)
+                    trigger_warned_unavailable = False
                     training_status = f"trained model at {cfg.asl_intent_model_path}"
                 else:
                     Xc, _yc = training_store.load_samples()
@@ -435,13 +613,35 @@ def run() -> None:
                         feat = extract_window_feature(capture_frames)
                         intent = intent_labels[intent_idx]
                         training_store.append_sample(intent, feat)
+                        if capture_question:
+                            training_question_history.append((capture_question, intent))
+
+                        ok_video, video_result = _save_training_video_npz(
+                            cfg.training_video_dir,
+                            capture_frames,
+                            intent,
+                        )
+                        if ok_video:
+                            store.save_training_video(
+                                intent=intent,
+                                question_text=capture_question,
+                                file_path=video_result,
+                                frame_count=len(capture_frames),
+                                duration_seconds=float(cfg.asl_response_window_seconds),
+                            )
+
                         Xc, yc = training_store.load_samples()
-                        training_status = (
+                        base_status = (
                             f"saved '{intent}' total={len(Xc)} "
                             f"[{format_intent_counts(yc)}]"
                         )
+                        if ok_video:
+                            training_status = f"{base_status} video saved"
+                        else:
+                            training_status = f"{base_status} | {video_result}"
                     else:
                         training_status = "capture failed: no frames"
+                    capture_question = ""
 
             if question_capture_active and not training_mode:
                 try:
@@ -464,6 +664,37 @@ def run() -> None:
                         _put_display(None, current_question, current_response)
                 except queue.Empty:
                     pass
+
+            if training_mode and cfg.training_question_trigger_enabled and not capture_active:
+                if raw_frame is not None:
+                    trigger_frames.append(raw_frame.copy())
+                max_frames = max(8, cfg.training_trigger_window_frames)
+                if len(trigger_frames) > max_frames:
+                    trigger_frames = trigger_frames[-max_frames:]
+
+                now = time.monotonic()
+                if len(trigger_frames) >= max_frames and now >= trigger_next_eval:
+                    trigger_next_eval = now + max(0.2, cfg.training_trigger_eval_interval_seconds)
+
+                    if not training_trigger_classifier.ready:
+                        if not trigger_warned_unavailable:
+                            training_status = "Gesture trigger unavailable: train model then tap FIT."
+                            trigger_warned_unavailable = True
+                    else:
+                        trigger_warned_unavailable = False
+                        pred = training_trigger_classifier.predict(
+                            extract_window_feature(trigger_frames)
+                        )
+                        if (
+                            pred.intent == cfg.training_question_trigger_intent
+                            and pred.confidence >= cfg.training_question_trigger_confidence
+                            and now - trigger_last_fire >= cfg.training_question_trigger_cooldown_seconds
+                        ):
+                            trigger_last_fire = now
+                            _begin_training_capture("GESTURE")
+            elif not training_mode:
+                trigger_frames = []
+                trigger_warned_unavailable = False
 
             display.render(
                 display_frame_id,

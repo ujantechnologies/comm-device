@@ -65,6 +65,19 @@ class DataStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS training_videos (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
+                    intent            TEXT    NOT NULL,
+                    question_text     TEXT    NOT NULL,
+                    file_path         TEXT    NOT NULL,
+                    frame_count       INTEGER NOT NULL,
+                    duration_seconds  REAL    NOT NULL
+                )
+                """
+            )
 
     def save_prediction(
         self,
@@ -114,3 +127,57 @@ class DataStore:
         xs = [np.frombuffer(r[0], dtype=np.float32) for r in rows]
         ys = [str(r[1]) for r in rows]
         return np.stack(xs), np.array(ys)
+
+    def save_training_video(
+        self,
+        intent: str,
+        question_text: str,
+        file_path: str,
+        frame_count: int,
+        duration_seconds: float,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO training_videos
+                    (intent, question_text, file_path, frame_count, duration_seconds)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (intent, question_text, file_path, int(frame_count), float(duration_seconds)),
+            )
+
+    def get_latest_training_video(self) -> Optional[dict[str, object]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, created_at, intent, question_text, file_path, frame_count, duration_seconds
+                FROM training_videos
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "id": int(row[0]),
+            "created_at": str(row[1]),
+            "intent": str(row[2]),
+            "question_text": str(row[3]),
+            "file_path": str(row[4]),
+            "frame_count": int(row[5]),
+            "duration_seconds": float(row[6]),
+        }
+
+    def delete_training_video(self, video_id: int) -> Optional[str]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT file_path FROM training_videos WHERE id = ?",
+                (int(video_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            file_path = str(row[0])
+            conn.execute("DELETE FROM training_videos WHERE id = ?", (int(video_id),))
+            return file_path

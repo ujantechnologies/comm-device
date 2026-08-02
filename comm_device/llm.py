@@ -56,6 +56,10 @@ class LlmService:
         )
         logger.info("LLM loaded: %s", self._model_path)
 
+    @property
+    def is_local_model_ready(self) -> bool:
+        return self._llm is not None
+
     def generate_response(self, label: ExpressionLabel) -> str:
         if self._llm is None:
             return _FALLBACK[label]
@@ -134,6 +138,73 @@ class LlmService:
         except Exception as exc:
             logger.error("Question generation error: %s", exc)
             return fallbacks[len(history) % len(fallbacks)]
+
+    def generate_training_question(
+        self,
+        history: list[tuple[str, str]],
+        target_intent: str,
+        temperature: float = 0.65,
+    ) -> tuple[bool, str]:
+        """Generate one training question that is likely to elicit a target intent.
+
+        This path is strict-local only. If the local GGUF model is unavailable,
+        it returns a failure status instead of using fallback prompts.
+        """
+        if self._llm is None:
+            return (
+                False,
+                "Training question unavailable: local LLM model is not loaded.",
+            )
+
+        if history:
+            history_text = "Recent training prompts:\n" + "\n".join(
+                f"Q: {q} | Target: {a}" for q, a in history[-6:]
+            ) + "\n\n"
+        else:
+            history_text = ""
+
+        prompt = (
+            "<start_of_turn>user\n"
+            "You are helping a 10 year old practice communication with sign labels. "
+            "Generate exactly one short spoken question that is very likely to produce "
+            f"the target response intent '{target_intent}'.\n"
+            f"{history_text}"
+            "Rules:\n"
+            "- Use simple words for a 10 year old.\n"
+            "- Ask one concrete everyday question.\n"
+            "- Keep it under 12 words.\n"
+            "- End with a question mark.\n"
+            "- Do not include extra explanation or multiple questions.\n"
+            "Reply with only the question text.\n"
+            "<end_of_turn>\n"
+            "<start_of_turn>model\n"
+        )
+
+        try:
+            out = self._llm(
+                prompt,
+                max_tokens=48,
+                stop=["<end_of_turn>", "\n"],
+                temperature=max(0.0, min(1.2, temperature)),
+            )
+            text = out["choices"][0]["text"].strip()
+            if text and not text.endswith("?"):
+                text += "?"
+
+            if not text:
+                return False, "Training question generation failed: empty model output."
+
+            if len(text.split()) > 14:
+                return False, "Training question generation failed: output too long."
+
+            recent = {q.strip().lower() for q, _ in history[-8:]}
+            if text.strip().lower() in recent:
+                return False, "Training question generation failed: duplicate question."
+
+            return True, text
+        except Exception as exc:
+            logger.error("Training question generation error: %s", exc)
+            return False, "Training question generation failed: local LLM inference error."
 
     def generate_intent_response(self, question: str, intent: str) -> str:
         """Turn recognized intent into a spoken response for a heard question."""

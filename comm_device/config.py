@@ -2,6 +2,13 @@ from dataclasses import dataclass
 import os
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class AppConfig:
     display_width: int = int(os.getenv("COMM_DISPLAY_WIDTH", "480"))
@@ -51,6 +58,31 @@ class AppConfig:
     asl_warmup_seconds: float = float(os.getenv("COMM_ASL_WARMUP_SECONDS", "1.5"))
     asl_training_intents: str = os.getenv(
         "COMM_ASL_TRAINING_INTENTS", "yes,no,water,pain,rest,help"
+    )
+    training_video_dir: str = os.getenv(
+        "COMM_TRAINING_VIDEO_DIR", "artifacts/training_videos"
+    )
+    training_strict_local_llm: bool = _env_bool("COMM_TRAINING_STRICT_LOCAL_LLM", True)
+    training_question_temperature: float = float(
+        os.getenv("COMM_TRAINING_QUESTION_TEMPERATURE", "0.65")
+    )
+    training_question_trigger_enabled: bool = _env_bool(
+        "COMM_TRAINING_QUESTION_TRIGGER_ENABLED", True
+    )
+    training_question_trigger_intent: str = os.getenv(
+        "COMM_TRAINING_QUESTION_TRIGGER_INTENT", "speak_question"
+    )
+    training_question_trigger_confidence: float = float(
+        os.getenv("COMM_TRAINING_QUESTION_TRIGGER_CONFIDENCE", "0.8")
+    )
+    training_question_trigger_cooldown_seconds: float = float(
+        os.getenv("COMM_TRAINING_QUESTION_TRIGGER_COOLDOWN_SECONDS", "5.0")
+    )
+    training_trigger_eval_interval_seconds: float = float(
+        os.getenv("COMM_TRAINING_TRIGGER_EVAL_INTERVAL_SECONDS", "1.0")
+    )
+    training_trigger_window_frames: int = int(
+        os.getenv("COMM_TRAINING_TRIGGER_WINDOW_FRAMES", "24")
     )
     whisper_model_name: str = os.getenv("COMM_WHISPER_MODEL", "tiny")
     mic_question_seconds: int = int(os.getenv("COMM_MIC_QUESTION_SECONDS", "10"))
