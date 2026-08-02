@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import audioop
 import subprocess
 import time
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -174,7 +176,35 @@ class AslIntentClassifier:
         return IntentPrediction(intent=str(classes[idx]), confidence=float(probs[idx]))
 
 
-def record_mic_audio(output_path: str, seconds: int, target: str = "") -> bool:
+def _tail_rms(path: Path, window_seconds: float = 0.4) -> Optional[int]:
+    try:
+        with wave.open(str(path), "rb") as wav_file:
+            frame_rate = wav_file.getframerate()
+            sample_width = wav_file.getsampwidth()
+            total_frames = wav_file.getnframes()
+            if frame_rate <= 0 or sample_width <= 0 or total_frames <= 0:
+                return None
+
+            frames_to_read = max(1, int(frame_rate * max(0.1, window_seconds)))
+            start = max(0, total_frames - frames_to_read)
+            wav_file.setpos(start)
+            chunk = wav_file.readframes(total_frames - start)
+            if not chunk:
+                return None
+            return int(audioop.rms(chunk, sample_width))
+    except (wave.Error, EOFError, OSError):
+        return None
+
+
+def record_mic_audio(
+    output_path: str,
+    seconds: int,
+    target: str = "",
+    auto_stop_on_silence: bool = False,
+    min_seconds: float = 1.5,
+    silence_seconds: float = 1.0,
+    silence_rms_threshold: int = 350,
+) -> bool:
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -184,8 +214,28 @@ def record_mic_audio(output_path: str, seconds: int, target: str = "") -> bool:
     cmd.append(str(out))
 
     proc = subprocess.Popen(cmd)
+    start = time.monotonic()
+    speech_detected = False
+    silence_started_at: Optional[float] = None
     try:
-        time.sleep(seconds)
+        while True:
+            elapsed = time.monotonic() - start
+            if elapsed >= seconds:
+                break
+
+            if auto_stop_on_silence and out.exists() and out.stat().st_size > 44:
+                rms = _tail_rms(out)
+                if rms is not None:
+                    if rms >= max(1, silence_rms_threshold):
+                        speech_detected = True
+                        silence_started_at = None
+                    elif speech_detected and elapsed >= min_seconds:
+                        if silence_started_at is None:
+                            silence_started_at = time.monotonic()
+                        elif time.monotonic() - silence_started_at >= max(0.2, silence_seconds):
+                            break
+
+            time.sleep(0.2)
     finally:
         proc.terminate()
         try:

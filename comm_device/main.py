@@ -359,6 +359,10 @@ def _question_capture_thread(
             output_path=q_audio,
             seconds=max(1, getattr(cfg, "mic_question_seconds")),
             target=getattr(cfg, "audio_input_target"),
+            auto_stop_on_silence=bool(getattr(cfg, "mic_auto_stop_on_silence", True)),
+            min_seconds=float(getattr(cfg, "mic_min_question_seconds", 1.5)),
+            silence_seconds=float(getattr(cfg, "mic_silence_seconds", 1.0)),
+            silence_rms_threshold=int(getattr(cfg, "mic_silence_rms_threshold", 350)),
         )
 
         if not ok:
@@ -536,18 +540,18 @@ def run() -> None:
         capture_active = True
         now = time.monotonic()
         capture_warmup_end = now + max(0.0, cfg.asl_warmup_seconds)
-        capture_end = capture_warmup_end + max(1, cfg.asl_response_window_seconds)
+        capture_end = capture_warmup_end + max(1, cfg.training_clip_seconds)
         capture_frames = []
         if training_question_from_caregiver:
             training_status = (
                 f"{source} trigger: caregiver question, intent={target_intent} "
-                f"window={cfg.asl_response_window_seconds}s"
+                f"window={cfg.training_clip_seconds}s"
             )
             return
         training_status = (
             f"{source} trigger: recording intent={target_intent} "
             f"warmup={cfg.asl_warmup_seconds:.1f}s "
-            f"window={cfg.asl_response_window_seconds}s"
+            f"window={cfg.training_clip_seconds}s"
         )
 
     try:
@@ -592,7 +596,9 @@ def run() -> None:
             elif action == "capture_sample" and not training_mode and not question_capture_active:
                 question_capture_active = True
                 training_question_capture_mode = "comm"
-                training_status = f"Listening to caregiver question ({cfg.mic_question_seconds}s)..."
+                training_status = (
+                    f"Listening to caregiver question (up to {cfg.mic_question_seconds}s)..."
+                )
                 try:
                     _question_capture_req_q.put_nowait(True)
                 except queue.Full:
@@ -601,7 +607,7 @@ def run() -> None:
                 question_capture_active = True
                 training_question_capture_mode = "train"
                 training_status = (
-                    f"Listening for caregiver training question ({cfg.mic_question_seconds}s)..."
+                    f"Listening for caregiver training question (up to {cfg.mic_question_seconds}s)..."
                 )
                 try:
                     _question_capture_req_q.put_nowait(True)
@@ -712,7 +718,7 @@ def run() -> None:
                                 question_text=capture_question,
                                 file_path=video_result,
                                 frame_count=len(capture_frames),
-                                duration_seconds=float(cfg.asl_response_window_seconds),
+                                duration_seconds=float(cfg.training_clip_seconds),
                             )
 
                         Xc, yc = training_store.load_samples()

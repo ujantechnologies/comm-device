@@ -57,8 +57,9 @@ class AppConfig:
     asl_response_window_seconds: int = int(os.getenv("COMM_ASL_RESPONSE_WINDOW_SECONDS", "10"))
     asl_warmup_seconds: float = float(os.getenv("COMM_ASL_WARMUP_SECONDS", "1.5"))
     asl_training_intents: str = os.getenv(
-        "COMM_ASL_TRAINING_INTENTS", "yes,no,water,pain,rest,help"
+        "COMM_ASL_TRAINING_INTENTS", "yes,no,water,pain,rest,help,speak_question"
     )
+    training_clip_seconds: int = int(os.getenv("COMM_TRAINING_CLIP_SECONDS", "5"))
     training_video_dir: str = os.getenv(
         "COMM_TRAINING_VIDEO_DIR", "artifacts/training_videos"
     )
@@ -86,6 +87,14 @@ class AppConfig:
     )
     whisper_model_name: str = os.getenv("COMM_WHISPER_MODEL", "tiny")
     mic_question_seconds: int = int(os.getenv("COMM_MIC_QUESTION_SECONDS", "10"))
+    mic_auto_stop_on_silence: bool = _env_bool("COMM_MIC_AUTO_STOP_ON_SILENCE", True)
+    mic_min_question_seconds: float = float(
+        os.getenv("COMM_MIC_MIN_QUESTION_SECONDS", "1.5")
+    )
+    mic_silence_seconds: float = float(os.getenv("COMM_MIC_SILENCE_SECONDS", "1.0"))
+    mic_silence_rms_threshold: int = int(
+        os.getenv("COMM_MIC_SILENCE_RMS_THRESHOLD", "350")
+    )
     # Framebuffer device for the SPI display.
     # Pi 5: legacy fb0 (bcm2708_fb doesn't load, SPI display takes fb0).
     # Pi 4 and earlier: fb1 (VC4 firmware claims fb0 first).

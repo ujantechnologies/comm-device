@@ -257,7 +257,14 @@ Training mode controls on the touchscreen:
 - **REC** — in COMM mode, listen for a caregiver question; in TRAIN mode, start recording a training sample
 - **FIT** — train the personalized ASL intent model from collected samples
 
-By default, training capture stores about 10 seconds of response frames because `COMM_ASL_RESPONSE_WINDOW_SECONDS` defaults to `10`.
+To train the gesture that starts the training-question flow, use the `speak_question` intent in TRAIN mode:
+- Tap **INT** until `speak_question` is selected.
+- Perform that same gesture repeatedly while collecting samples with **REC**.
+- Tap **FIT** after collecting enough examples.
+- After the model is trained, that gesture can trigger the spoken training question without tapping REC.
+
+By default, training capture stores 5-second response clips because `COMM_TRAINING_CLIP_SECONDS` defaults to `5`.
+Caregiver microphone questions now stop early when speech ends, up to the max time set by `COMM_MIC_QUESTION_SECONDS`.
 
 To stop the app cleanly, press **Ctrl+C**. The app catches `SIGINT`/`SIGTERM` and shuts down all threads gracefully.
 
@@ -299,6 +306,7 @@ All settings have sensible defaults. Override any of them by exporting environme
 | `COMM_EXPR_CONF_THRESHOLD` | `0.6` | Minimum confidence to trigger LLM+TTS pipeline |
 | `COMM_LLM_COOLDOWN_SECONDS` | `3.0` | Minimum seconds between successive LLM calls |
 | `COMM_TRAINING_VIDEO_DIR` | `artifacts/training_videos` | Directory for saved training video review artifacts |
+| `COMM_TRAINING_CLIP_SECONDS` | `5` | Duration of each saved training response clip |
 | `COMM_TRAINING_STRICT_LOCAL_LLM` | `true` | Require local GGUF model for training questions |
 | `COMM_TRAINING_QUESTION_TEMPERATURE` | `0.65` | Sampling temperature for generated training questions |
 | `COMM_TRAINING_QUESTION_TRIGGER_ENABLED` | `true` | Enable gesture-triggered question playback in TRAIN mode |
@@ -307,6 +315,10 @@ All settings have sensible defaults. Override any of them by exporting environme
 | `COMM_TRAINING_QUESTION_TRIGGER_COOLDOWN_SECONDS` | `5.0` | Minimum time between gesture triggers |
 | `COMM_TRAINING_TRIGGER_EVAL_INTERVAL_SECONDS` | `1.0` | How often to evaluate the gesture trigger window |
 | `COMM_TRAINING_TRIGGER_WINDOW_FRAMES` | `24` | Number of frames used for the gesture trigger decision |
+| `COMM_MIC_AUTO_STOP_ON_SILENCE` | `true` | Stop caregiver question recording after speech ends |
+| `COMM_MIC_MIN_QUESTION_SECONDS` | `1.5` | Minimum question-recording time before silence can stop it |
+| `COMM_MIC_SILENCE_SECONDS` | `1.0` | Length of trailing silence that ends caregiver question recording |
+| `COMM_MIC_SILENCE_RMS_THRESHOLD` | `350` | Loudness threshold used for speech/silence detection |
 | `COMM_FBDEV` | `/dev/fb0` | Framebuffer device for the SPI display. Pi 5: `/dev/fb0` (default). Pi 4 and earlier: `/dev/fb1` |
 
 Example — run with a longer feedback window and higher confidence threshold:
