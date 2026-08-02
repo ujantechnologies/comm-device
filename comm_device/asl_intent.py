@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import audioop
 import subprocess
 import time
 import wave
@@ -181,8 +180,9 @@ def _tail_rms(path: Path, window_seconds: float = 0.4) -> Optional[int]:
         with wave.open(str(path), "rb") as wav_file:
             frame_rate = wav_file.getframerate()
             sample_width = wav_file.getsampwidth()
+            channels = wav_file.getnchannels()
             total_frames = wav_file.getnframes()
-            if frame_rate <= 0 or sample_width <= 0 or total_frames <= 0:
+            if frame_rate <= 0 or sample_width <= 0 or channels <= 0 or total_frames <= 0:
                 return None
 
             frames_to_read = max(1, int(frame_rate * max(0.1, window_seconds)))
@@ -191,7 +191,29 @@ def _tail_rms(path: Path, window_seconds: float = 0.4) -> Optional[int]:
             chunk = wav_file.readframes(total_frames - start)
             if not chunk:
                 return None
-            return int(audioop.rms(chunk, sample_width))
+
+            if sample_width == 1:
+                samples = np.frombuffer(chunk, dtype=np.uint8).astype(np.int16) - 128
+            elif sample_width == 2:
+                samples = np.frombuffer(chunk, dtype=np.int16)
+            elif sample_width == 4:
+                samples = np.frombuffer(chunk, dtype=np.int32)
+            else:
+                return None
+
+            if samples.size == 0:
+                return None
+
+            # For multi-channel audio, average channels first so one loud channel
+            # still contributes to voice activity detection.
+            if channels > 1:
+                usable = (samples.size // channels) * channels
+                if usable <= 0:
+                    return None
+                samples = samples[:usable].reshape(-1, channels).mean(axis=1)
+
+            rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float64)))))
+            return int(rms)
     except (wave.Error, EOFError, OSError):
         return None
 
