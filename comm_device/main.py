@@ -258,6 +258,35 @@ def _play_training_video_npz(
     return True, f"Reviewed {len(frames)} training frames."
 
 
+def _delete_files(paths: list[str]) -> int:
+    removed = 0
+    for path in paths:
+        try:
+            Path(path).unlink(missing_ok=True)
+            removed += 1
+        except Exception as exc:
+            logger.error("Failed to remove artifact %s: %s", path, exc)
+    return removed
+
+
+def _format_training_video_list(
+    videos: list[dict[str, object]],
+    selected_idx: int,
+) -> str:
+    if not videos:
+        return "No training videos saved."
+
+    lines = [f"Videos {selected_idx + 1}/{len(videos)}"]
+    for idx, video in enumerate(videos[:4]):
+        prefix = ">" if idx == selected_idx else " "
+        intent = str(video["intent"])[:7]
+        seconds = int(round(float(video["duration_seconds"])))
+        lines.append(f"{prefix}{idx + 1}. {intent} {seconds}s")
+    if len(videos) > 4:
+        lines.append(f"... +{len(videos) - 4} more")
+    return "\n".join(lines)
+
+
 def _llm_tts_thread(
     llm: LlmService,
     tts_response: TtsService,
@@ -427,11 +456,15 @@ def run() -> None:
     capture_end = 0.0
     capture_frames: list["np.ndarray"] = []
     capture_question = ""
+    manual_training_question = ""
+    training_question_from_caregiver = False
     training_question_history: list[tuple[str, str]] = []
     trigger_frames: list[np.ndarray] = []
     trigger_last_fire = 0.0
     trigger_next_eval = 0.0
     trigger_warned_unavailable = False
+    review_video_idx = -1
+    training_question_capture_mode = ""
     question_capture_active = False
 
     # Show any existing dataset stats once at startup
@@ -445,6 +478,8 @@ def run() -> None:
         nonlocal capture_end
         nonlocal capture_frames
         nonlocal capture_question
+        nonlocal manual_training_question
+        nonlocal training_question_from_caregiver
         nonlocal current_question
         nonlocal current_response
         nonlocal training_status
@@ -454,28 +489,33 @@ def run() -> None:
 
         target_intent = intent_labels[intent_idx]
 
-        if cfg.training_strict_local_llm:
-            ok_q, question_text = llm.generate_training_question(
-                training_question_history,
-                target_intent,
-                temperature=cfg.training_question_temperature,
-            )
-            if not ok_q:
-                training_status = question_text
-                return
+        if manual_training_question.strip():
+            question_text = manual_training_question.strip()
+            training_question_from_caregiver = True
         else:
-            if llm.is_local_model_ready:
+            training_question_from_caregiver = False
+            if cfg.training_strict_local_llm:
                 ok_q, question_text = llm.generate_training_question(
                     training_question_history,
                     target_intent,
                     temperature=cfg.training_question_temperature,
                 )
+                if not ok_q:
+                    training_status = question_text
+                    return
             else:
-                ok_q, question_text = True, llm.generate_question(training_question_history)
+                if llm.is_local_model_ready:
+                    ok_q, question_text = llm.generate_training_question(
+                        training_question_history,
+                        target_intent,
+                        temperature=cfg.training_question_temperature,
+                    )
+                else:
+                    ok_q, question_text = True, llm.generate_question(training_question_history)
 
-            if not ok_q or not question_text:
-                training_status = "Could not generate training question."
-                return
+                if not ok_q or not question_text:
+                    training_status = "Could not generate training question."
+                    return
 
         current_question = question_text
         current_response = ""
@@ -498,6 +538,12 @@ def run() -> None:
         capture_warmup_end = now + max(0.0, cfg.asl_warmup_seconds)
         capture_end = capture_warmup_end + max(1, cfg.asl_response_window_seconds)
         capture_frames = []
+        if training_question_from_caregiver:
+            training_status = (
+                f"{source} trigger: caregiver question, intent={target_intent} "
+                f"window={cfg.asl_response_window_seconds}s"
+            )
+            return
         training_status = (
             f"{source} trigger: recording intent={target_intent} "
             f"warmup={cfg.asl_warmup_seconds:.1f}s "
@@ -532,6 +578,7 @@ def run() -> None:
                 mode_name = "TRAIN" if training_mode else "COMM"
                 training_status = f"{mode_name} mode"
                 trigger_frames = []
+                review_video_idx = -1
                 if training_mode and cfg.training_strict_local_llm and not llm.is_local_model_ready:
                     training_status = (
                         "TRAIN mode needs local LLM model for questions. "
@@ -544,43 +591,81 @@ def run() -> None:
                 _begin_training_capture("REC")
             elif action == "capture_sample" and not training_mode and not question_capture_active:
                 question_capture_active = True
+                training_question_capture_mode = "comm"
                 training_status = f"Listening to caregiver question ({cfg.mic_question_seconds}s)..."
                 try:
                     _question_capture_req_q.put_nowait(True)
                 except queue.Full:
                     pass
+            elif action == "ask_question" and training_mode and not question_capture_active:
+                question_capture_active = True
+                training_question_capture_mode = "train"
+                training_status = (
+                    f"Listening for caregiver training question ({cfg.mic_question_seconds}s)..."
+                )
+                try:
+                    _question_capture_req_q.put_nowait(True)
+                except queue.Full:
+                    pass
             elif action == "review_video" and training_mode:
-                latest = store.get_latest_training_video()
-                if latest is None:
+                videos = store.list_training_videos()
+                if not videos:
                     training_status = "No saved training video to review."
+                    current_response = ""
                 else:
+                    review_video_idx = (review_video_idx + 1) % len(videos)
+                    current_response = _format_training_video_list(videos, review_video_idx)
+                    current_question = str(videos[review_video_idx]["question_text"])
                     ok_play, status = _play_training_video_npz(
                         display,
-                        str(latest["file_path"]),
+                        str(videos[review_video_idx]["file_path"]),
                         current_result,
                         "TRAIN",
                         current_question,
                         current_response,
-                        intent_labels[intent_idx],
+                        str(videos[review_video_idx]["intent"]),
                     )
                     training_status = status
                     if ok_play:
                         _put_display(None, current_question, current_response)
             elif action == "delete_video" and training_mode:
-                latest = store.get_latest_training_video()
-                if latest is None:
+                videos = store.list_training_videos()
+                if not videos:
                     training_status = "No saved training video to delete."
                 else:
-                    removed_path = store.delete_training_video(int(latest["id"]))
+                    review_video_idx = min(review_video_idx, len(videos) - 1)
+                    selected_video = videos[review_video_idx]
+                    removed_path = store.delete_training_video(int(selected_video["id"]))
                     if not removed_path:
                         training_status = "Failed to delete training video metadata."
                     else:
-                        try:
-                            Path(removed_path).unlink(missing_ok=True)
-                            training_status = "Deleted latest training video."
-                        except Exception as exc:
-                            logger.error("Training video delete error: %s", exc)
-                            training_status = "Deleted metadata but file removal failed."
+                        removed_count = _delete_files([removed_path])
+                        remaining = store.list_training_videos()
+                        if remaining:
+                            review_video_idx = min(review_video_idx, len(remaining) - 1)
+                            current_response = _format_training_video_list(remaining, review_video_idx)
+                        else:
+                            review_video_idx = -1
+                            current_response = ""
+                        training_status = (
+                            f"Deleted video {selected_video['intent']} ({removed_count} file removed)."
+                        )
+            elif action == "reset_training" and training_mode:
+                removed_paths = store.delete_all_training_videos()
+                removed_files = _delete_files(removed_paths)
+                training_store.clear()
+                training_trigger_classifier = AslIntentClassifier(cfg.asl_intent_model_path)
+                review_video_idx = -1
+                manual_training_question = ""
+                training_question_from_caregiver = False
+                training_question_history = []
+                current_question = ""
+                current_response = ""
+                capture_question = ""
+                training_status = (
+                    f"Reset training: cleared {len(removed_paths)} videos, removed {removed_files} files."
+                )
+                _put_display(None, current_question, current_response)
             elif action == "fit_model" and training_mode:
                 min_samples = max(20, len(intent_labels) * 6)
                 ok = training_store.train(min_samples=min_samples)
@@ -643,12 +728,14 @@ def run() -> None:
                         training_status = "capture failed: no frames"
                     capture_question = ""
 
-            if question_capture_active and not training_mode:
+            if question_capture_active:
                 try:
                     ok, q_text, status = _question_capture_result_q.get_nowait()
                     question_capture_active = False
+                    mode = training_question_capture_mode
+                    training_question_capture_mode = ""
                     training_status = status
-                    if ok and q_text:
+                    if ok and q_text and mode == "comm":
                         current_question = q_text
                         try:
                             _question_q.put_nowait(q_text)
@@ -661,6 +748,12 @@ def run() -> None:
                                 _question_q.put_nowait(q_text)
                             except queue.Full:
                                 pass
+                        _put_display(None, current_question, current_response)
+                    elif ok and q_text and mode == "train":
+                        manual_training_question = q_text
+                        current_question = q_text
+                        current_response = "Caregiver question ready. Tap REC or use gesture."
+                        training_status = "Caregiver training question saved."
                         _put_display(None, current_question, current_response)
                 except queue.Empty:
                     pass

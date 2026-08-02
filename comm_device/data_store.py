@@ -181,3 +181,32 @@ class DataStore:
             file_path = str(row[0])
             conn.execute("DELETE FROM training_videos WHERE id = ?", (int(video_id),))
             return file_path
+
+    def list_training_videos(self) -> list[dict[str, object]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, created_at, intent, question_text, file_path, frame_count, duration_seconds
+                FROM training_videos
+                ORDER BY id DESC
+                """
+            ).fetchall()
+
+        return [
+            {
+                "id": int(row[0]),
+                "created_at": str(row[1]),
+                "intent": str(row[2]),
+                "question_text": str(row[3]),
+                "file_path": str(row[4]),
+                "frame_count": int(row[5]),
+                "duration_seconds": float(row[6]),
+            }
+            for row in rows
+        ]
+
+    def delete_all_training_videos(self) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT file_path FROM training_videos").fetchall()
+            conn.execute("DELETE FROM training_videos")
+        return [str(row[0]) for row in rows]

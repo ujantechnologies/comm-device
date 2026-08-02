@@ -127,6 +127,10 @@ class AslIntentStore:
         y = data["y"]
         return X, y
 
+    def clear(self) -> None:
+        self.dataset_path.unlink(missing_ok=True)
+        self.model_path.unlink(missing_ok=True)
+
     def train(self, min_samples: int = 20) -> bool:
         X, y = self.load_samples()
         if len(X) < min_samples:

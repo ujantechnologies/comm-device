@@ -65,8 +65,10 @@ class DisplayService:
         self._close_rect: Optional[object] = None
         self._mode_rect: Optional[object] = None
         self._intent_rect: Optional[object] = None
+        self._ask_rect: Optional[object] = None
         self._review_rect: Optional[object] = None
         self._delete_rect: Optional[object] = None
+        self._reset_rect: Optional[object] = None
         self._rec_rect: Optional[object] = None
         self._fit_rect: Optional[object] = None
 
@@ -113,12 +115,14 @@ class DisplayService:
         self._font_sm = pygame.font.SysFont("monospace", 16)
         self._close_rect = pygame.Rect(self.width - 48, 0, 48, 48)
         # Large touch targets for 3.5" screen
-        self._mode_rect = pygame.Rect(4, 4, 94, 40)
-        self._intent_rect = pygame.Rect(104, 4, 104, 40)
-        self._review_rect = pygame.Rect(self.width - 294, 4, 56, 40)
-        self._delete_rect = pygame.Rect(self.width - 234, 4, 56, 40)
-        self._rec_rect = pygame.Rect(self.width - 174, 4, 56, 40)
-        self._fit_rect = pygame.Rect(self.width - 114, 4, 56, 40)
+        self._mode_rect = pygame.Rect(4, 4, 60, 40)
+        self._intent_rect = pygame.Rect(68, 4, 90, 40)
+        self._ask_rect = pygame.Rect(162, 4, 40, 40)
+        self._review_rect = pygame.Rect(206, 4, 40, 40)
+        self._delete_rect = pygame.Rect(250, 4, 40, 40)
+        self._reset_rect = pygame.Rect(294, 4, 40, 40)
+        self._rec_rect = pygame.Rect(338, 4, 40, 40)
+        self._fit_rect = pygame.Rect(382, 4, 40, 40)
         logger.info("Display initialised at %dx%d", self.width, self.height)
 
     def render(
@@ -162,10 +166,14 @@ class DisplayService:
                     self._last_action = "toggle_mode"
                 if self._intent_rect and self._intent_rect.collidepoint(pos):
                     self._last_action = "next_intent"
+                if self._ask_rect and self._ask_rect.collidepoint(pos):
+                    self._last_action = "ask_question"
                 if self._review_rect and self._review_rect.collidepoint(pos):
                     self._last_action = "review_video"
                 if self._delete_rect and self._delete_rect.collidepoint(pos):
                     self._last_action = "delete_video"
+                if self._reset_rect and self._reset_rect.collidepoint(pos):
+                    self._last_action = "reset_training"
                 if self._rec_rect and self._rec_rect.collidepoint(pos):
                     self._last_action = "capture_sample"
                 if self._fit_rect and self._fit_rect.collidepoint(pos):
@@ -226,17 +234,27 @@ class DisplayService:
         # Mode and training controls
         if self._mode_rect:
             pygame.draw.rect(self._screen, (40, 80, 160), self._mode_rect, border_radius=5)
-            mode_txt = self._font_md.render(f"MODE", True, _WHITE)
-            self._screen.blit(mode_txt, (self._mode_rect.x + 12, self._mode_rect.y + 8))
+            mode_txt = self._font_md.render("MODE", True, _WHITE)
+            mode_rect = mode_txt.get_rect(center=(self._mode_rect.centerx, self._mode_rect.y + 14))
+            self._screen.blit(mode_txt, mode_rect)
             mode_val = self._font_sm.render(mode, True, _WHITE)
-            self._screen.blit(mode_val, (self._mode_rect.x + 28, self._mode_rect.y + 24))
+            mode_val_rect = mode_val.get_rect(center=(self._mode_rect.centerx, self._mode_rect.y + 30))
+            self._screen.blit(mode_val, mode_val_rect)
 
         if self._intent_rect:
             pygame.draw.rect(self._screen, (90, 90, 90), self._intent_rect, border_radius=5)
             itxt = self._font_md.render("INT", True, _WHITE)
-            self._screen.blit(itxt, (self._intent_rect.x + 30, self._intent_rect.y + 8))
-            ival = self._font_sm.render(training_intent[:10], True, _WHITE)
-            self._screen.blit(ival, (self._intent_rect.x + 8, self._intent_rect.y + 24))
+            itxt_rect = itxt.get_rect(center=(self._intent_rect.centerx, self._intent_rect.y + 14))
+            self._screen.blit(itxt, itxt_rect)
+            ival = self._font_sm.render(training_intent[:9], True, _WHITE)
+            ival_rect = ival.get_rect(center=(self._intent_rect.centerx, self._intent_rect.y + 30))
+            self._screen.blit(ival, ival_rect)
+
+        if self._ask_rect:
+            pygame.draw.rect(self._screen, (110, 80, 30), self._ask_rect, border_radius=5)
+            ask_txt = self._font_md.render("ASK", True, _WHITE)
+            ask_rect = ask_txt.get_rect(center=self._ask_rect.center)
+            self._screen.blit(ask_txt, ask_rect)
 
         if self._review_rect:
             pygame.draw.rect(self._screen, (70, 90, 140), self._review_rect, border_radius=5)
@@ -249,6 +267,12 @@ class DisplayService:
             del_txt = self._font_md.render("DEL", True, _WHITE)
             del_rect = del_txt.get_rect(center=self._delete_rect.center)
             self._screen.blit(del_txt, del_rect)
+
+        if self._reset_rect:
+            pygame.draw.rect(self._screen, (120, 30, 120), self._reset_rect, border_radius=5)
+            rst_txt = self._font_md.render("RST", True, _WHITE)
+            rst_rect = rst_txt.get_rect(center=self._reset_rect.center)
+            self._screen.blit(rst_txt, rst_rect)
 
         if self._rec_rect:
             pygame.draw.rect(self._screen, (150, 70, 30), self._rec_rect, border_radius=5)

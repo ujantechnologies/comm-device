@@ -247,6 +247,18 @@ The app starts all threads automatically:
 - **Event/LLM thread** — fires when YES/NO is detected with ≥60% confidence (3-second cooldown between events)
 - **Display thread** — renders live label + confidence bar on the SPI screen
 
+Training mode controls on the touchscreen:
+- **MODE** — switch between COMM and TRAIN
+- **INT** — cycle the current target intent label
+- **ASK** — record a caregiver-spoken training question for the next sample
+- **REV** — browse saved training videos and play the selected one
+- **DEL** — delete the currently selected training video
+- **RST** — clear all saved training videos and reset training samples/model
+- **REC** — in COMM mode, listen for a caregiver question; in TRAIN mode, start recording a training sample
+- **FIT** — train the personalized ASL intent model from collected samples
+
+By default, training capture stores about 10 seconds of response frames because `COMM_ASL_RESPONSE_WINDOW_SECONDS` defaults to `10`.
+
 To stop the app cleanly, press **Ctrl+C**. The app catches `SIGINT`/`SIGTERM` and shuts down all threads gracefully.
 
 ---
@@ -286,6 +298,15 @@ All settings have sensible defaults. Override any of them by exporting environme
 | `COMM_FEEDBACK_WINDOW_SECONDS` | `5` | Seconds to wait for button feedback after prediction |
 | `COMM_EXPR_CONF_THRESHOLD` | `0.6` | Minimum confidence to trigger LLM+TTS pipeline |
 | `COMM_LLM_COOLDOWN_SECONDS` | `3.0` | Minimum seconds between successive LLM calls |
+| `COMM_TRAINING_VIDEO_DIR` | `artifacts/training_videos` | Directory for saved training video review artifacts |
+| `COMM_TRAINING_STRICT_LOCAL_LLM` | `true` | Require local GGUF model for training questions |
+| `COMM_TRAINING_QUESTION_TEMPERATURE` | `0.65` | Sampling temperature for generated training questions |
+| `COMM_TRAINING_QUESTION_TRIGGER_ENABLED` | `true` | Enable gesture-triggered question playback in TRAIN mode |
+| `COMM_TRAINING_QUESTION_TRIGGER_INTENT` | `speak_question` | Intent label that triggers question playback |
+| `COMM_TRAINING_QUESTION_TRIGGER_CONFIDENCE` | `0.8` | Minimum confidence for the gesture trigger |
+| `COMM_TRAINING_QUESTION_TRIGGER_COOLDOWN_SECONDS` | `5.0` | Minimum time between gesture triggers |
+| `COMM_TRAINING_TRIGGER_EVAL_INTERVAL_SECONDS` | `1.0` | How often to evaluate the gesture trigger window |
+| `COMM_TRAINING_TRIGGER_WINDOW_FRAMES` | `24` | Number of frames used for the gesture trigger decision |
 | `COMM_FBDEV` | `/dev/fb0` | Framebuffer device for the SPI display. Pi 5: `/dev/fb0` (default). Pi 4 and earlier: `/dev/fb1` |
 
 Example — run with a longer feedback window and higher confidence threshold:
