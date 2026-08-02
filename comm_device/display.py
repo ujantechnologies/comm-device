@@ -67,6 +67,8 @@ class DisplayService:
         self._close_guard_seconds = 3.0
         self._last_intent_tap_at = 0.0
         self._intent_double_tap_seconds = 0.6
+        self._last_delete_tap_at = 0.0
+        self._delete_double_tap_seconds = 0.6
         # Close button — top-right corner, finger-friendly 48×48 px
         self._close_rect: Optional[object] = None
         self._mode_rect: Optional[object] = None
@@ -201,7 +203,13 @@ class DisplayService:
                 if self._review_rect and self._review_rect.collidepoint(pos):
                     self._last_action = "review_video"
                 if self._delete_rect and self._delete_rect.collidepoint(pos):
-                    self._last_action = "delete_video"
+                    now = time.monotonic()
+                    if now - self._last_delete_tap_at <= self._delete_double_tap_seconds:
+                        self._last_action = "delete_intent"
+                        self._last_delete_tap_at = 0.0
+                    else:
+                        self._last_action = "delete_video"
+                        self._last_delete_tap_at = now
                 if self._reset_rect and self._reset_rect.collidepoint(pos):
                     self._last_action = "reset_training"
                 if self._rec_rect and self._rec_rect.collidepoint(pos):

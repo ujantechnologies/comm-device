@@ -254,6 +254,8 @@ Training mode controls on the touchscreen:
 - **ASK** — record a caregiver-spoken training question for the next sample
 - **REV** — browse saved training videos and play the selected one
 - **DEL** — delete the currently selected training video
+- **DEL (double-tap)** — arm intent delete confirmation for the selected intent
+- **DEL (double-tap again within 2s)** — confirm and delete the selected intent (and its samples/videos)
 - **RST** — clear all saved training videos and reset training samples/model
 - **REC** — in COMM mode, listen for a caregiver question; in TRAIN mode, start recording a training sample
 - **FIT** — train the personalized ASL intent model from collected samples
@@ -309,6 +311,8 @@ All settings have sensible defaults. Override any of them by exporting environme
 | `COMM_TRAINING_INTENTS_FILE` | `artifacts/training_intents.txt` | Persisted caregiver-added intent labels |
 | `COMM_TRAINING_VIDEO_DIR` | `artifacts/training_videos` | Directory for saved training video review artifacts |
 | `COMM_TRAINING_CLIP_SECONDS` | `5` | Duration of each saved training response clip |
+| `COMM_TRAINING_FIT_MIN_TOTAL_SAMPLES` | `6` | Minimum total samples required before FIT can train |
+| `COMM_TRAINING_FIT_MIN_PER_INTENT` | `0` | Additional per-intent requirement for FIT (`min = max(total, intents*per_intent)`) |
 | `COMM_TRAINING_STRICT_LOCAL_LLM` | `true` | Require local GGUF model for training questions |
 | `COMM_TRAINING_QUESTION_TEMPERATURE` | `0.65` | Sampling temperature for generated training questions |
 | `COMM_TRAINING_QUESTION_TRIGGER_ENABLED` | `true` | Enable gesture-triggered question playback in TRAIN mode |

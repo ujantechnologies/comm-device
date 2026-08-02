@@ -66,6 +66,12 @@ class AppConfig:
     training_video_dir: str = os.getenv(
         "COMM_TRAINING_VIDEO_DIR", "artifacts/training_videos"
     )
+    training_fit_min_total_samples: int = int(
+        os.getenv("COMM_TRAINING_FIT_MIN_TOTAL_SAMPLES", "6")
+    )
+    training_fit_min_per_intent: int = int(
+        os.getenv("COMM_TRAINING_FIT_MIN_PER_INTENT", "0")
+    )
     training_strict_local_llm: bool = _env_bool("COMM_TRAINING_STRICT_LOCAL_LLM", True)
     training_question_temperature: float = float(
         os.getenv("COMM_TRAINING_QUESTION_TEMPERATURE", "0.65")

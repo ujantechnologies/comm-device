@@ -210,3 +210,12 @@ class DataStore:
             rows = conn.execute("SELECT file_path FROM training_videos").fetchall()
             conn.execute("DELETE FROM training_videos")
         return [str(row[0]) for row in rows]
+
+    def delete_training_videos_by_intent(self, intent: str) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT file_path FROM training_videos WHERE intent = ?",
+                (intent,),
+            ).fetchall()
+            conn.execute("DELETE FROM training_videos WHERE intent = ?", (intent,))
+        return [str(row[0]) for row in rows]

@@ -132,6 +132,27 @@ class AslIntentStore:
         self.dataset_path.unlink(missing_ok=True)
         self.model_path.unlink(missing_ok=True)
 
+    def delete_intent(self, intent: str) -> int:
+        X, y = self.load_samples()
+        if len(y) == 0:
+            return 0
+
+        keep_mask = np.array([str(lbl) != intent for lbl in y], dtype=bool)
+        removed = int(len(y) - int(np.count_nonzero(keep_mask)))
+        if removed <= 0:
+            return 0
+
+        if np.count_nonzero(keep_mask) == 0:
+            self.clear()
+            return removed
+
+        X_next = X[keep_mask]
+        y_next = y[keep_mask]
+        np.savez(self.dataset_path, X=X_next.astype(np.float32), y=y_next)
+        # Force retrain after changing label space.
+        self.model_path.unlink(missing_ok=True)
+        return removed
+
     def train(self, min_samples: int = 20) -> bool:
         X, y = self.load_samples()
         if len(X) < min_samples:

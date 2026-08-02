@@ -319,6 +319,10 @@ def _save_extra_intents(path: str, intents: list[str]) -> None:
     p.write_text("\n".join(intents) + "\n", encoding="utf-8")
 
 
+def _current_extra_intents(base_intents: list[str], all_intents: list[str]) -> list[str]:
+    return [intent for intent in all_intents if intent not in base_intents]
+
+
 def _llm_tts_thread(
     llm: LlmService,
     tts_response: TtsService,
@@ -504,6 +508,8 @@ def run() -> None:
     review_video_idx = -1
     training_question_capture_mode = ""
     question_capture_active = False
+    pending_delete_intent = ""
+    pending_delete_intent_until = 0.0
 
     # Show any existing dataset stats once at startup
     X0, y0 = training_store.load_samples()
@@ -633,6 +639,8 @@ def run() -> None:
                         "TRAIN mode needs local LLM model for questions. "
                         "Check COMM_MODEL_PATH and restart."
                     )
+                pending_delete_intent = ""
+                pending_delete_intent_until = 0.0
             elif action == "next_intent":
                 intent_idx = (intent_idx + 1) % len(intent_labels)
                 logger.info("UI action=next_intent selected_intent=%s", intent_labels[intent_idx])
@@ -737,7 +745,16 @@ def run() -> None:
                 _put_display(None, current_question, current_response)
             elif action == "fit_model" and training_mode:
                 logger.info("UI action=fit_model mode=TRAIN")
-                min_samples = max(20, len(intent_labels) * 6)
+                min_samples = max(
+                    max(1, cfg.training_fit_min_total_samples),
+                    len(intent_labels) * max(0, cfg.training_fit_min_per_intent),
+                )
+                logger.info(
+                    "FIT requirement total_samples>=%d intents=%d per_intent=%d",
+                    min_samples,
+                    len(intent_labels),
+                    max(0, cfg.training_fit_min_per_intent),
+                )
                 ok = training_store.train(min_samples=min_samples)
                 if ok:
                     training_trigger_classifier = AslIntentClassifier(cfg.asl_intent_model_path)
@@ -748,6 +765,53 @@ def run() -> None:
                     Xc, _yc = training_store.load_samples()
                     logger.warning("Training fit rejected: samples=%d required>=%d", len(Xc), min_samples)
                     training_status = f"need >= {min_samples} samples (have {len(Xc)})"
+            elif action == "delete_intent" and training_mode:
+                current_intent = intent_labels[intent_idx]
+                logger.info("UI action=delete_intent mode=TRAIN intent=%s", current_intent)
+                now_confirm = time.monotonic()
+                if (
+                    pending_delete_intent != current_intent
+                    or now_confirm > pending_delete_intent_until
+                ):
+                    pending_delete_intent = current_intent
+                    pending_delete_intent_until = now_confirm + 2.0
+                    training_status = (
+                        f"Confirm delete intent '{current_intent}': double-tap DEL again in 2s"
+                    )
+                elif len(intent_labels) <= 2:
+                    training_status = "Keep at least 2 intents for training."
+                elif current_intent == cfg.training_question_trigger_intent:
+                    training_status = "Cannot delete trigger intent; change trigger config first."
+                else:
+                    removed_samples = training_store.delete_intent(current_intent)
+                    removed_video_paths = store.delete_training_videos_by_intent(current_intent)
+                    removed_video_files = _delete_files(removed_video_paths)
+
+                    intent_labels.pop(intent_idx)
+                    intent_idx = max(0, min(intent_idx, len(intent_labels) - 1))
+
+                    extra_intents = _current_extra_intents(base_intents, intent_labels)
+                    try:
+                        _save_extra_intents(cfg.training_intents_file, extra_intents)
+                    except Exception as exc:
+                        logger.error("Failed to persist intents after deletion: %s", exc)
+
+                    manual_training_question = ""
+                    capture_question = ""
+                    training_question_history = [
+                        (q, i) for (q, i) in training_question_history if i != current_intent
+                    ]
+                    training_trigger_classifier = AslIntentClassifier(cfg.asl_intent_model_path)
+
+                    training_status = (
+                        f"Deleted intent '{current_intent}' samples={removed_samples} "
+                        f"videos={removed_video_files}"
+                    )
+                    current_response = f"Intents: {len(intent_labels)}"
+                    _put_display(None, current_question, current_response)
+                if training_status.startswith("Deleted intent"):
+                    pending_delete_intent = ""
+                    pending_delete_intent_until = 0.0
 
             if capture_active and training_mode:
                 now = time.monotonic()
@@ -902,6 +966,13 @@ def run() -> None:
             elif not training_mode:
                 trigger_frames = []
                 trigger_warned_unavailable = False
+
+            if (
+                pending_delete_intent
+                and time.monotonic() > pending_delete_intent_until
+            ):
+                pending_delete_intent = ""
+                pending_delete_intent_until = 0.0
 
             display.render(
                 display_frame_id,
