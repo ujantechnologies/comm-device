@@ -323,6 +323,15 @@ def _current_extra_intents(base_intents: list[str], all_intents: list[str]) -> l
     return [intent for intent in all_intents if intent not in base_intents]
 
 
+def _model_update_summary(model_path: str) -> str:
+    p = Path(model_path)
+    if not p.exists():
+        return "model file missing"
+    stat = p.stat()
+    mtime = time.strftime("%H:%M:%S", time.localtime(stat.st_mtime))
+    return f"model {stat.st_size // 1024}KB @ {mtime}"
+
+
 def _llm_tts_thread(
     llm: LlmService,
     tts_response: TtsService,
@@ -749,6 +758,16 @@ def run() -> None:
                     max(1, cfg.training_fit_min_total_samples),
                     len(intent_labels) * max(0, cfg.training_fit_min_per_intent),
                 )
+                before_summary = _model_update_summary(cfg.asl_intent_model_path)
+                videos_before = len(store.list_training_videos())
+                Xc_before, yc_before = training_store.load_samples()
+                logger.info(
+                    "FIT start samples=%d labels=[%s] videos=%d model_before=%s",
+                    len(Xc_before),
+                    format_intent_counts(yc_before),
+                    videos_before,
+                    before_summary,
+                )
                 logger.info(
                     "FIT requirement total_samples>=%d intents=%d per_intent=%d",
                     min_samples,
@@ -759,8 +778,20 @@ def run() -> None:
                 if ok:
                     training_trigger_classifier = AslIntentClassifier(cfg.asl_intent_model_path)
                     trigger_warned_unavailable = False
+                    Xc_after, yc_after = training_store.load_samples()
+                    after_summary = _model_update_summary(cfg.asl_intent_model_path)
+                    videos_after = len(store.list_training_videos())
+                    logger.info(
+                        "FIT success samples=%d labels=[%s] videos=%d model_after=%s",
+                        len(Xc_after),
+                        format_intent_counts(yc_after),
+                        videos_after,
+                        after_summary,
+                    )
                     logger.info("Training classifier reloaded from %s", cfg.asl_intent_model_path)
-                    training_status = f"trained model at {cfg.asl_intent_model_path}"
+                    training_status = (
+                        f"FIT ok samples={len(Xc_after)} videos={videos_after} | {after_summary}"
+                    )
                 else:
                     Xc, _yc = training_store.load_samples()
                     logger.warning("Training fit rejected: samples=%d required>=%d", len(Xc), min_samples)

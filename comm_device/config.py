@@ -57,7 +57,7 @@ class AppConfig:
     asl_response_window_seconds: int = int(os.getenv("COMM_ASL_RESPONSE_WINDOW_SECONDS", "10"))
     asl_warmup_seconds: float = float(os.getenv("COMM_ASL_WARMUP_SECONDS", "1.5"))
     asl_training_intents: str = os.getenv(
-        "COMM_ASL_TRAINING_INTENTS", "yes,no,water,pain,rest,help,speak_question"
+        "COMM_ASL_TRAINING_INTENTS", "yes,no,speak_question"
     )
     training_intents_file: str = os.getenv(
         "COMM_TRAINING_INTENTS_FILE", "artifacts/training_intents.txt"
@@ -95,7 +95,7 @@ class AppConfig:
         os.getenv("COMM_TRAINING_TRIGGER_WINDOW_FRAMES", "24")
     )
     whisper_model_name: str = os.getenv("COMM_WHISPER_MODEL", "tiny")
-    mic_question_seconds: int = int(os.getenv("COMM_MIC_QUESTION_SECONDS", "10"))
+    mic_question_seconds: int = int(os.getenv("COMM_MIC_QUESTION_SECONDS", "6"))
     mic_auto_stop_on_silence: bool = _env_bool("COMM_MIC_AUTO_STOP_ON_SILENCE", True)
     mic_min_question_seconds: float = float(
         os.getenv("COMM_MIC_MIN_QUESTION_SECONDS", "1.5")
