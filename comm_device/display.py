@@ -192,7 +192,7 @@ class DisplayService:
         self._screen.blit(badge, (bx, by))
 
         # Confidence bar
-        bar_w = max(1, int(result.confidence * (half - 20)))
+        bar_w = max(1, int(result.confidence * (right_w - 20)))
         pygame.draw.rect(
             self._screen, color,
             pygame.Rect(right_x + 10, by + badge.get_height() + 6, min(bar_w, right_w - 20), 10),
