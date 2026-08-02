@@ -489,9 +489,16 @@ def run() -> None:
         nonlocal training_status
 
         if capture_active:
+            logger.info("Ignoring training capture request from %s because capture is already active", source)
             return
 
         target_intent = intent_labels[intent_idx]
+        logger.info(
+            "Starting training capture source=%s target_intent=%s caregiver_question=%s",
+            source,
+            target_intent,
+            bool(manual_training_question.strip()),
+        )
 
         if manual_training_question.strip():
             question_text = manual_training_question.strip()
@@ -505,6 +512,7 @@ def run() -> None:
                     temperature=cfg.training_question_temperature,
                 )
                 if not ok_q:
+                    logger.warning("Training question generation failed for intent=%s: %s", target_intent, question_text)
                     training_status = question_text
                     return
             else:
@@ -518,6 +526,7 @@ def run() -> None:
                     ok_q, question_text = True, llm.generate_question(training_question_history)
 
                 if not ok_q or not question_text:
+                    logger.warning("Training question generation returned no usable question for intent=%s", target_intent)
                     training_status = "Could not generate training question."
                     return
 
@@ -532,6 +541,7 @@ def run() -> None:
                 output_path="artifacts/training_question.wav",
             )
             audio.play(q_out)
+            logger.info("Training question spoken intent=%s text=%s", target_intent, question_text)
         except Exception as exc:
             logger.error("Training question playback error: %s", exc)
             training_status = "Question generated but playback failed."
@@ -578,6 +588,7 @@ def run() -> None:
 
             action = display.consume_action()
             if action == "toggle_mode":
+                logger.info("UI action=toggle_mode current_mode=%s", "TRAIN" if training_mode else "COMM")
                 training_mode = not training_mode
                 mode_name = "TRAIN" if training_mode else "COMM"
                 training_status = f"{mode_name} mode"
@@ -590,10 +601,13 @@ def run() -> None:
                     )
             elif action == "next_intent":
                 intent_idx = (intent_idx + 1) % len(intent_labels)
+                logger.info("UI action=next_intent selected_intent=%s", intent_labels[intent_idx])
                 training_status = f"intent={intent_labels[intent_idx]}"
             elif action == "capture_sample" and training_mode and not capture_active:
+                logger.info("UI action=capture_sample mode=TRAIN")
                 _begin_training_capture("REC")
             elif action == "capture_sample" and not training_mode and not question_capture_active:
+                logger.info("UI action=capture_sample mode=COMM")
                 question_capture_active = True
                 training_question_capture_mode = "comm"
                 training_status = (
@@ -604,6 +618,7 @@ def run() -> None:
                 except queue.Full:
                     pass
             elif action == "ask_question" and training_mode and not question_capture_active:
+                logger.info("UI action=ask_question mode=TRAIN")
                 question_capture_active = True
                 training_question_capture_mode = "train"
                 training_status = (
@@ -614,6 +629,7 @@ def run() -> None:
                 except queue.Full:
                     pass
             elif action == "review_video" and training_mode:
+                logger.info("UI action=review_video mode=TRAIN")
                 videos = store.list_training_videos()
                 if not videos:
                     training_status = "No saved training video to review."
@@ -635,6 +651,7 @@ def run() -> None:
                     if ok_play:
                         _put_display(None, current_question, current_response)
             elif action == "delete_video" and training_mode:
+                logger.info("UI action=delete_video mode=TRAIN")
                 videos = store.list_training_videos()
                 if not videos:
                     training_status = "No saved training video to delete."
@@ -657,6 +674,7 @@ def run() -> None:
                             f"Deleted video {selected_video['intent']} ({removed_count} file removed)."
                         )
             elif action == "reset_training" and training_mode:
+                logger.info("UI action=reset_training mode=TRAIN")
                 removed_paths = store.delete_all_training_videos()
                 removed_files = _delete_files(removed_paths)
                 training_store.clear()
@@ -673,14 +691,17 @@ def run() -> None:
                 )
                 _put_display(None, current_question, current_response)
             elif action == "fit_model" and training_mode:
+                logger.info("UI action=fit_model mode=TRAIN")
                 min_samples = max(20, len(intent_labels) * 6)
                 ok = training_store.train(min_samples=min_samples)
                 if ok:
                     training_trigger_classifier = AslIntentClassifier(cfg.asl_intent_model_path)
                     trigger_warned_unavailable = False
+                    logger.info("Training classifier reloaded from %s", cfg.asl_intent_model_path)
                     training_status = f"trained model at {cfg.asl_intent_model_path}"
                 else:
                     Xc, _yc = training_store.load_samples()
+                    logger.warning("Training fit rejected: samples=%d required>=%d", len(Xc), min_samples)
                     training_status = f"need >= {min_samples} samples (have {len(Xc)})"
 
             if capture_active and training_mode:
@@ -720,6 +741,13 @@ def run() -> None:
                                 frame_count=len(capture_frames),
                                 duration_seconds=float(cfg.training_clip_seconds),
                             )
+                            logger.info(
+                                "Training sample saved intent=%s frames=%d clip=%ss artifact=%s",
+                                intent,
+                                len(capture_frames),
+                                cfg.training_clip_seconds,
+                                video_result,
+                            )
 
                         Xc, yc = training_store.load_samples()
                         base_status = (
@@ -731,6 +759,7 @@ def run() -> None:
                         else:
                             training_status = f"{base_status} | {video_result}"
                     else:
+                        logger.warning("Training capture finished with no frames")
                         training_status = "capture failed: no frames"
                     capture_question = ""
 
@@ -742,6 +771,7 @@ def run() -> None:
                     training_question_capture_mode = ""
                     training_status = status
                     if ok and q_text and mode == "comm":
+                        logger.info("COMM question captured text=%s", q_text)
                         current_question = q_text
                         try:
                             _question_q.put_nowait(q_text)
@@ -756,11 +786,14 @@ def run() -> None:
                                 pass
                         _put_display(None, current_question, current_response)
                     elif ok and q_text and mode == "train":
+                        logger.info("TRAIN caregiver question captured text=%s", q_text)
                         manual_training_question = q_text
                         current_question = q_text
                         current_response = "Caregiver question ready. Tap REC or use gesture."
                         training_status = "Caregiver training question saved."
                         _put_display(None, current_question, current_response)
+                    elif not ok:
+                        logger.warning("Question capture failed mode=%s status=%s", mode, status)
                 except queue.Empty:
                     pass
 
@@ -789,6 +822,12 @@ def run() -> None:
                             and pred.confidence >= cfg.training_question_trigger_confidence
                             and now - trigger_last_fire >= cfg.training_question_trigger_cooldown_seconds
                         ):
+                            logger.info(
+                                "Gesture trigger fired intent=%s confidence=%.3f threshold=%.3f",
+                                pred.intent,
+                                pred.confidence,
+                                cfg.training_question_trigger_confidence,
+                            )
                             trigger_last_fire = now
                             _begin_training_capture("GESTURE")
             elif not training_mode:
@@ -806,7 +845,7 @@ def run() -> None:
                 raw_frame,
             )
             if display.should_quit:
-                logger.info("Quit requested from display — shutting down")
+                logger.info("Quit requested from display (%s) — shutting down", display.quit_reason or "unknown")
                 break
             time.sleep(1 / 15)  # ~15 FPS
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Optional
 
 import numpy as np
@@ -60,7 +61,10 @@ class DisplayService:
         self._font_md: Optional[object] = None
         self._font_sm: Optional[object] = None
         self._should_quit = False
+        self._quit_reason = ""
         self._last_action = ""
+        self._started_at = time.monotonic()
+        self._close_guard_seconds = 3.0
         # Close button — top-right corner, finger-friendly 48×48 px
         self._close_rect: Optional[object] = None
         self._mode_rect: Optional[object] = None
@@ -79,6 +83,10 @@ class DisplayService:
     @property
     def should_quit(self) -> bool:
         return self._should_quit
+
+    @property
+    def quit_reason(self) -> str:
+        return self._quit_reason
 
     def consume_action(self) -> str:
         action = self._last_action
@@ -145,23 +153,37 @@ class DisplayService:
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                self._quit_reason = "pygame quit event"
+                logger.info("Display requested shutdown: %s", self._quit_reason)
                 self._should_quit = True
                 return
             if event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_ESCAPE, pygame.K_q):
+                    self._quit_reason = f"keyboard key={event.key}"
+                    logger.info("Display requested shutdown: %s", self._quit_reason)
                     self._should_quit = True
                     return
-            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.FINGERDOWN, pygame.FINGERUP):
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
                 pos = (
                     event.x if event.type == pygame.FINGERDOWN else event.pos[0],
                     event.y if event.type == pygame.FINGERDOWN else event.pos[1],
                 )
-                if event.type in (pygame.FINGERDOWN, pygame.FINGERUP):
+                if event.type == pygame.FINGERDOWN:
                     # FINGERDOWN x/y are 0-1 normalised; convert to pixels
                     pos = (int(event.x * self.width), int(event.y * self.height))
                 if self._close_rect and self._close_rect.collidepoint(pos):
-                    self._should_quit = True
-                    return
+                    uptime = time.monotonic() - self._started_at
+                    if uptime < self._close_guard_seconds:
+                        logger.warning(
+                            "Ignoring close tap during startup guard: pos=%s uptime=%.2fs",
+                            pos,
+                            uptime,
+                        )
+                    else:
+                        self._quit_reason = f"close button tap pos={pos} uptime={uptime:.2f}s"
+                        logger.info("Display requested shutdown: %s", self._quit_reason)
+                        self._should_quit = True
+                        return
                 if self._mode_rect and self._mode_rect.collidepoint(pos):
                     self._last_action = "toggle_mode"
                 if self._intent_rect and self._intent_rect.collidepoint(pos):
@@ -178,6 +200,13 @@ class DisplayService:
                     self._last_action = "capture_sample"
                 if self._fit_rect and self._fit_rect.collidepoint(pos):
                     self._last_action = "fit_model"
+                if self._last_action:
+                    logger.info(
+                        "Display action=%s event=%s pos=%s",
+                        self._last_action,
+                        pygame.event.event_name(event.type),
+                        pos,
+                    )
 
         self._screen.fill(_DARK)
         # Slightly smaller camera panel to make controls/text clearer on 3.5" screen.
