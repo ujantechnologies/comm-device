@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import faulthandler
 import logging
 import queue
 import signal
+import sys
 import threading
 import time
+import traceback
+from pathlib import Path
 from typing import Optional
 
 from .asl_intent import (
@@ -26,6 +30,62 @@ from .llm import LlmService
 from .tts import TtsService
 
 logger = logging.getLogger(__name__)
+_CRASH_LOG_FH: Optional[object] = None
+
+
+def _setup_logging() -> Path:
+    """Configure console + file logging with crash traces.
+
+    Returns:
+        Path to the main log file.
+    """
+    log_dir = Path("artifacts")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "comm_device.log"
+    crash_path = log_dir / "comm_device_crash.log"
+
+    formatter = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s %(message)s")
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    root.addHandler(console_handler)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    # Capture unhandled exceptions in main thread.
+    def _handle_excepthook(exc_type: object, exc_value: object, exc_tb: object) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            return
+        root.error(
+            "Unhandled exception",
+            exc_info=(exc_type, exc_value, exc_tb),
+        )
+
+    sys.excepthook = _handle_excepthook
+
+    # Capture unhandled exceptions from background threads.
+    def _handle_thread_exception(args: threading.ExceptHookArgs) -> None:
+        root.error(
+            "Unhandled thread exception in '%s'",
+            args.thread.name if args.thread else "<unknown>",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    threading.excepthook = _handle_thread_exception
+
+    # Dump fatal signals (segfault, bus error, etc.) to a dedicated file.
+    global _CRASH_LOG_FH
+    _CRASH_LOG_FH = crash_path.open("a", encoding="utf-8")
+    faulthandler.enable(file=_CRASH_LOG_FH, all_threads=True)
+
+    root.info("Logging initialized. Main log: %s | Crash log: %s", log_path, crash_path)
+    return log_path
 
 # Inter-thread queues
 _frame_q: queue.Queue[FrameData] = queue.Queue(maxsize=2)
@@ -230,10 +290,7 @@ def _question_capture_thread(
 # ------------------------------------------------------------------
 
 def run() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(name)s %(message)s",
-    )
+    _setup_logging()
     cfg = load_config()
 
     camera = CameraService(imx500_config_path=cfg.imx500_config_path)
@@ -423,6 +480,9 @@ def run() -> None:
                 break
             time.sleep(1 / 15)  # ~15 FPS
 
+    except Exception:
+        logger.exception("Fatal crash in main loop")
+        raise
     finally:
         _stop.set()
         camera.stop()
