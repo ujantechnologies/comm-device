@@ -59,6 +59,9 @@ class AppConfig:
     asl_training_intents: str = os.getenv(
         "COMM_ASL_TRAINING_INTENTS", "yes,no,water,pain,rest,help,speak_question"
     )
+    training_intents_file: str = os.getenv(
+        "COMM_TRAINING_INTENTS_FILE", "artifacts/training_intents.txt"
+    )
     training_clip_seconds: int = int(os.getenv("COMM_TRAINING_CLIP_SECONDS", "5"))
     training_video_dir: str = os.getenv(
         "COMM_TRAINING_VIDEO_DIR", "artifacts/training_videos"

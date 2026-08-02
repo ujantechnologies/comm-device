@@ -250,6 +250,7 @@ The app starts all threads automatically:
 Training mode controls on the touchscreen:
 - **MODE** — switch between COMM and TRAIN
 - **INT** — cycle the current target intent label
+- **INT (double-tap)** — add a new intent label by voice (speak a short label)
 - **ASK** — record a caregiver-spoken training question for the next sample
 - **REV** — browse saved training videos and play the selected one
 - **DEL** — delete the currently selected training video
@@ -305,6 +306,7 @@ All settings have sensible defaults. Override any of them by exporting environme
 | `COMM_FEEDBACK_WINDOW_SECONDS` | `5` | Seconds to wait for button feedback after prediction |
 | `COMM_EXPR_CONF_THRESHOLD` | `0.6` | Minimum confidence to trigger LLM+TTS pipeline |
 | `COMM_LLM_COOLDOWN_SECONDS` | `3.0` | Minimum seconds between successive LLM calls |
+| `COMM_TRAINING_INTENTS_FILE` | `artifacts/training_intents.txt` | Persisted caregiver-added intent labels |
 | `COMM_TRAINING_VIDEO_DIR` | `artifacts/training_videos` | Directory for saved training video review artifacts |
 | `COMM_TRAINING_CLIP_SECONDS` | `5` | Duration of each saved training response clip |
 | `COMM_TRAINING_STRICT_LOCAL_LLM` | `true` | Require local GGUF model for training questions |

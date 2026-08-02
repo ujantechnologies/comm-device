@@ -3,6 +3,7 @@ from __future__ import annotations
 import faulthandler
 import logging
 import queue
+import re
 import signal
 import sys
 import threading
@@ -287,6 +288,37 @@ def _format_training_video_list(
     return "\n".join(lines)
 
 
+def _normalize_intent_label(raw: str) -> str:
+    label = raw.strip().lower().replace(" ", "_")
+    label = re.sub(r"[^a-z0-9_]+", "", label)
+    label = re.sub(r"_+", "_", label).strip("_")
+    return label[:24]
+
+
+def _load_extra_intents(path: str) -> list[str]:
+    p = Path(path)
+    if not p.exists():
+        return []
+    try:
+        lines = p.read_text(encoding="utf-8").splitlines()
+    except Exception as exc:
+        logger.warning("Could not read training intents file %s: %s", p, exc)
+        return []
+
+    out: list[str] = []
+    for line in lines:
+        val = _normalize_intent_label(line)
+        if val:
+            out.append(val)
+    return out
+
+
+def _save_extra_intents(path: str, intents: list[str]) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(intents) + "\n", encoding="utf-8")
+
+
 def _llm_tts_thread(
     llm: LlmService,
     tts_response: TtsService,
@@ -452,7 +484,9 @@ def run() -> None:
 
     # In-app training mode state
     training_mode = False
-    intent_labels = parse_intents(cfg.asl_training_intents) or ["yes", "no", "help"]
+    base_intents = parse_intents(cfg.asl_training_intents) or ["yes", "no", "help"]
+    extra_intents = _load_extra_intents(cfg.training_intents_file)
+    intent_labels = list(dict.fromkeys(base_intents + extra_intents))
     intent_idx = 0
     training_status = "COMM mode"
     capture_active = False
@@ -603,6 +637,17 @@ def run() -> None:
                 intent_idx = (intent_idx + 1) % len(intent_labels)
                 logger.info("UI action=next_intent selected_intent=%s", intent_labels[intent_idx])
                 training_status = f"intent={intent_labels[intent_idx]}"
+            elif action == "add_intent" and training_mode and not question_capture_active:
+                logger.info("UI action=add_intent mode=TRAIN")
+                question_capture_active = True
+                training_question_capture_mode = "intent"
+                training_status = (
+                    f"Speak new intent name (up to {cfg.mic_question_seconds}s)..."
+                )
+                try:
+                    _question_capture_req_q.put_nowait(True)
+                except queue.Full:
+                    pass
             elif action == "capture_sample" and training_mode and not capture_active:
                 logger.info("UI action=capture_sample mode=TRAIN")
                 _begin_training_capture("REC")
@@ -791,6 +836,30 @@ def run() -> None:
                         current_question = q_text
                         current_response = "Caregiver question ready. Tap REC or use gesture."
                         training_status = "Caregiver training question saved."
+                        _put_display(None, current_question, current_response)
+                    elif ok and q_text and mode == "intent":
+                        label = _normalize_intent_label(q_text)
+                        logger.info("Intent-add speech captured raw=%s normalized=%s", q_text, label)
+                        if not label:
+                            training_status = "Intent add failed: say a short one-word label."
+                        elif label in intent_labels:
+                            intent_idx = intent_labels.index(label)
+                            training_status = f"Intent already exists: {label}"
+                        else:
+                            intent_labels.append(label)
+                            if label not in base_intents:
+                                extra_intents = [x for x in intent_labels if x not in base_intents]
+                                try:
+                                    _save_extra_intents(cfg.training_intents_file, extra_intents)
+                                except Exception as exc:
+                                    logger.error("Failed to persist custom intents: %s", exc)
+                                    training_status = (
+                                        f"Added intent {label} (not persisted: write error)."
+                                    )
+                                    continue
+                            intent_idx = len(intent_labels) - 1
+                            training_status = f"Added intent: {label}"
+                        current_response = f"Intents: {len(intent_labels)}"
                         _put_display(None, current_question, current_response)
                     elif not ok:
                         logger.warning("Question capture failed mode=%s status=%s", mode, status)

@@ -65,6 +65,8 @@ class DisplayService:
         self._last_action = ""
         self._started_at = time.monotonic()
         self._close_guard_seconds = 3.0
+        self._last_intent_tap_at = 0.0
+        self._intent_double_tap_seconds = 0.6
         # Close button — top-right corner, finger-friendly 48×48 px
         self._close_rect: Optional[object] = None
         self._mode_rect: Optional[object] = None
@@ -187,7 +189,13 @@ class DisplayService:
                 if self._mode_rect and self._mode_rect.collidepoint(pos):
                     self._last_action = "toggle_mode"
                 if self._intent_rect and self._intent_rect.collidepoint(pos):
-                    self._last_action = "next_intent"
+                    now = time.monotonic()
+                    if now - self._last_intent_tap_at <= self._intent_double_tap_seconds:
+                        self._last_action = "add_intent"
+                        self._last_intent_tap_at = 0.0
+                    else:
+                        self._last_action = "next_intent"
+                        self._last_intent_tap_at = now
                 if self._ask_rect and self._ask_rect.collidepoint(pos):
                     self._last_action = "ask_question"
                 if self._review_rect and self._review_rect.collidepoint(pos):
